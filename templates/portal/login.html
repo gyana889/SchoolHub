@@ -1,0 +1,21 @@
+{% extends 'portal/base.html' %}
+{% block title %}Sign in | SchoolHub{% endblock %}
+{% block body_class %}login-page{% endblock %}
+{% block content %}
+<header class="login-header"><a class="brand" href="{% url 'home' %}"><span class="brand-mark"><i data-lucide="asterisk"></i></span><span>school<span class="brand-accent">hub</span><small>BETTER TOGETHER</small></span></a><div class="login-header-actions">{% include 'portal/theme_picker.html' %}<a class="back-link" href="{% url 'home' %}" aria-label="Back to home"><i data-lucide="arrow-left"></i> <span>Back to home</span></a></div></header>
+<main class="login-layout">
+    <section class="login-story"><div class="login-story-shade"></div><div class="login-story-content"><div class="eyebrow hero-eyebrow"><span></span> A LITTLE MORE ROOM TO LEARN</div><h1>It takes a<br><em>community.</em></h1><p>Here's to the people, the progress, and the little moments that make a school.</p></div><div class="login-photo-caption">A BETTER SCHOOL DAY, TOGETHER <span>01 / 01</span></div></section>
+    <section class="login-form-area"><div class="login-form-wrap"><div class="section-label"><span class="label-dot"></span> YOUR SCHOOL COMMUNITY</div><h2>Welcome back<span class="heading-period">.</span></h2><p class="login-intro">Good to see you again. Sign in to your account.</p>
+        <form method="post" class="login-form">{% csrf_token %}
+            {% if form.non_field_errors %}<div class="form-error" role="alert">{% for error in form.non_field_errors %}{{ error }}{% endfor %}</div>{% endif %}
+            <label for="{{ form.role.id_for_label }}">{{ form.role.label }}</label><div class="select-wrap">{{ form.role }}<i data-lucide="chevron-down"></i></div>{{ form.role.errors }}
+            <label for="id_username">Username</label><input id="id_username" type="text" name="username" placeholder="Enter your username" value="{{ form.username.value|default:'' }}" autocomplete="username" required autofocus>
+            <label for="id_password">Password</label><div class="password-wrap"><input id="id_password" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required><button type="button" class="password-toggle" aria-label="Show password" title="Show password"><i data-lucide="eye"></i></button></div>
+            {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+            <button type="submit" class="button button-dark login-submit">Sign in <i data-lucide="arrow-right"></i></button>
+        </form>
+        <div class="login-help"><i data-lucide="circle-help"></i><p>Need help accessing your account?<br><strong>Contact your school administrator.</strong></p></div>
+        <div class="login-bottom">A LITTLE MORE TOGETHER. <span>SchoolHub &copy; {% now 'Y' %}</span></div>
+    </div></section>
+</main>
+{% endblock %}

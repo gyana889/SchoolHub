@@ -1,0 +1,1 @@
+"""SchoolHub portal application."""

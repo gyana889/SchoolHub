@@ -1,0 +1,8 @@
+{% extends 'portal/app_base.html' %}
+{% block title %}{{ module.name }} | SchoolHub{% endblock %}
+{% block breadcrumb %}{{ module.name }}{% endblock %}
+{% block app_content %}
+<div class="module-page-header"><a href="{% url 'dashboard' %}" class="back-link"><i data-lucide="arrow-left"></i> Back to overview</a><div class="module-page-title"><span class="module-icon {{ module.color }}"><i data-lucide="{{ module.icon }}"></i></span><div><div class="section-label"><span class="label-dot"></span> YOUR WORKSPACE</div><h1>{{ module.name }}<span class="heading-period">.</span></h1><p>{{ module.description }}</p></div></div></div>
+<div class="area-heading"><div><h2>Explore this module</h2><p>Available areas for {{ module.name|lower }}.</p></div></div>
+<div class="area-grid">{% for section in module.sections %}<a class="area-card" href="{{ section.path }}"><span class="area-number">0{{ forloop.counter }}</span><div><h3>{{ section.name }}</h3></div><i data-lucide="arrow-up-right"></i></a>{% empty %}<div class="empty-state"><h3>No submenus assigned.</h3><p>Contact your school administrator to arrange access.</p></div>{% endfor %}</div>
+{% endblock %}

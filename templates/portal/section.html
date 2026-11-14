@@ -1,0 +1,7 @@
+{% extends 'portal/app_base.html' %}
+{% block title %}{{ section.name }} | SchoolHub{% endblock %}
+{% block breadcrumb %}{{ module.name }} / {{ section.name }}{% endblock %}
+{% block app_content %}
+<div class="module-page-header"><a href="{% url 'module' module.slug %}" class="back-link"><i data-lucide="arrow-left"></i> Back to {{ module.name }}</a><div class="module-page-title"><span class="module-icon {{ module.color }}"><i data-lucide="{{ module.icon }}"></i></span><div><div class="section-label"><span class="label-dot"></span> {{ module.name|upper }}</div><h1>{{ section.name }}<span class="heading-period">.</span></h1></div></div></div>
+<div class="empty-state"><i data-lucide="construction"></i><h3>Coming soon</h3><p>This area is in development.</p></div>
+{% endblock %}
