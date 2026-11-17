@@ -9,7 +9,7 @@
         <form method="post" class="login-form">{% csrf_token %}
             {% if form.non_field_errors %}<div class="form-error" role="alert">{% for error in form.non_field_errors %}{{ error }}{% endfor %}</div>{% endif %}
             <label for="{{ form.role.id_for_label }}">{{ form.role.label }}</label><div class="select-wrap">{{ form.role }}<i data-lucide="chevron-down"></i></div>{{ form.role.errors }}
-            <label for="id_username">Username</label><input id="id_username" type="text" name="username" placeholder="Enter your username" value="{{ form.username.value|default:'' }}" autocomplete="username" required autofocus>
+            <label for="id_username">Username</label><input id="id_username" type="text" name="username" placeholder="Enter your username" value="{{ form.username.value|default:'' }}" autocomplete="username" required>
             <label for="id_password">Password</label><div class="password-wrap"><input id="id_password" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required><button type="button" class="password-toggle" aria-label="Show password" title="Show password"><i data-lucide="eye"></i></button></div>
             {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
             <button type="submit" class="button button-dark login-submit">Sign in <i data-lucide="arrow-right"></i></button>
