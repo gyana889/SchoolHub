@@ -13,6 +13,7 @@
 .app-main{height:100vh;height:100dvh;overflow-y:auto;overscroll-behavior:contain}
 .app-header{position:sticky;top:0;z-index:4;flex-shrink:0}
 .module-nav-icon{width:25px;height:25px;display:grid;place-items:center;flex-shrink:0;border-radius:4px}
+.side-menu summary span.module-nav-icon{flex:0 0 25px}
 .module-nav-icon svg{width:15px;height:15px}
 @media(min-width:721px){.mobile-menu{display:grid;place-items:center;border:0;background:transparent;padding:4px;color:var(--ink)}.app-shell.sidebar-hidden .sidebar{display:none}}
 @media(max-width:720px){.sidebar-close{display:grid;place-items:center;position:absolute;top:24px;right:12px;width:32px;height:32px;border:0;background:transparent;color:#78877e}.sidebar-close svg{width:18px;height:18px}}
