@@ -178,15 +178,30 @@ select * from T_UserRole_Master
 --update T_Modules_Master set icon='boxes',color='yellow',admin_only=0 where ModuleName='Inventory'
 --update T_Modules_Master set icon='receipt-text',color='lavender',admin_only=0 where ModuleName='Tax'
 
+--create table T_Role_Module_Mapping
+--(
+--	RoleModuleMappingId bigint identity(1,1) constraint pk_T_Role_Module_Mapping primary key,
+--	ModuleId bigint constraint fk_T_Role_Module_Mapping_ModuleId foreign key references T_Modules_Master(ModuleId),
+--	RoleId bigint constraint fk_T_Role_Module_Mapping_RoleId  foreign key references T_UserRole_Master(RoleId),
+--	MappedBy bigint,
+--	MappedDt datetime,
+--	MappedIP nvarchar(200)
+--)
+
+--alter table T_Credential_Manager
+--add MobileNo varchar(20), EmailId varchar(200)
+
 select * from portal_menu 
 select * from T_Modules_Master
 select * from portal_menu_roles 
-select * from auth_group
+select * from T_Credential_Manager
+select * from auth_user
+
 
 
 select * from T_LoginUser_History
 select * from T_Modules_Master
-
+select * from T_Credential_Manager
 
 
 

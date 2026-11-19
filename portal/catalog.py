@@ -35,7 +35,7 @@ def _legacy_modules_for(user):
 
 def modules_for(user):
     required_tables = {"T_Modules_Master", "T_Menu_Master", "T_User_Access"}
-    if not required_tables.intersection(connection.introspection.table_names()):
+    if not required_tables.issubset(connection.introspection.table_names()):
         return _legacy_modules_for(user)
 
     credential = None

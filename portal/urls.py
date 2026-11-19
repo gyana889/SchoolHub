@@ -13,6 +13,7 @@ urlpatterns = [
     path("dashboard/master-data/mappings/", views.master_mappings, name="master-mappings"),
     path("dashboard/master-data/mappings/columns/", views.mapping_columns, name="mapping-columns"),
     path("dashboard/master-data/<int:mapping_id>/<str:record_id>/delete/", views.master_delete, name="master-delete"),
+    path("dashboard/access-control/credential-manager/", views.credential_manager, name="credential-manager"),
     path("dashboard/access-control/<slug:tab>/", views.access_control, name="access-control"),
     path("dashboard/menu/<slug:slug>/", views.module_detail, name="module"),
     path("dashboard/<slug:slug>/<slug:submenu_slug>/", views.submenu_detail, name="submenu"),

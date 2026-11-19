@@ -7,8 +7,9 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.models import Group
+from django.contrib.auth.hashers import identify_hasher, make_password
 from django.contrib.auth.views import LoginView
+from django.core.mail import send_mail
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError, IntegrityError, transaction
@@ -22,10 +23,10 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .catalog import ROLES, can_access_submenu, is_admin, modules_for, user_roles
-from .forms import MasterMappingForm, MasterUploadForm, RoleAuthenticationForm, RoleMenusForm, UserSubmenusForm
+from .forms import CredentialPasswordResetForm, MasterMappingForm, MasterUploadForm, RoleAuthenticationForm, RoleModuleMappingForm, UserSubmenusForm
 from .dynamic_master import delete_dynamic_record, dynamic_form, dynamic_records, import_dynamic_spreadsheet, normalize_record_id, relation_choices, relation_header, save_dynamic_record, table_metadata
 from .master_data import TABLES, database_table_columns, database_table_names, editable_tables, import_csv, mapped_editable_columns, record_form, records_for, supported_table_names
-from .models import LoginUserHistory, MasterMapping
+from .models import CredentialManager, CredentialUpdateHistory, LoginUserHistory, MasterMapping, MenuMaster, ModuleMaster, RoleModuleMapping, UserRoleMaster
 
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,109 @@ def admin_required(view):
             return HttpResponseForbidden("Administrator access required.")
         return view(request, *args, **kwargs)
     return wrapped
+
+
+def credential_manager_required(view):
+    @login_required
+    def wrapped(request, *args, **kwargs):
+        try:
+            credential = CredentialManager.objects.select_related("role").get(
+                username__iexact=request.user.get_username(),
+                status=True,
+            )
+        except (CredentialManager.DoesNotExist, CredentialManager.MultipleObjectsReturned):
+            return HttpResponseForbidden("Credential manager access required.")
+
+        role_name = credential.role.role_name if credential.role else None
+        if role_name == "Super Admin":
+            request.credential_manager_actor = credential
+        elif role_name == "Admin":
+            module_ids = MenuMaster.objects.filter(
+                url=reverse("credential-manager"),
+            ).values_list("module_id", flat=True)
+            if not RoleModuleMapping.objects.filter(
+                role_id=credential.role_id,
+                module_id__in=module_ids,
+            ).exists():
+                return HttpResponseForbidden("You do not have access to Change Password.")
+            request.credential_manager_actor = credential
+        else:
+            return HttpResponseForbidden("Only Super Admin and assigned Admin users may reset passwords.")
+
+        return view(request, *args, **kwargs)
+    return wrapped
+
+
+def password_for_history(password):
+    if not password:
+        return ""
+    try:
+        identify_hasher(password)
+    except ValueError:
+        return make_password(password)
+    return password
+
+
+@credential_manager_required
+def credential_manager(request):
+    actor = request.credential_manager_actor
+    role_name = actor.role.role_name
+    form = CredentialPasswordResetForm(
+        request.POST if request.method == "POST" else None,
+        actor_role=role_name,
+        initial={"reset_scope": "single"},
+    )
+    if request.method == "POST" and form.is_valid():
+        selected = form.cleaned_data["selected_credentials"]
+        new_password = form.cleaned_data["new_password"]
+        update_type = "Bulk reset" if form.cleaned_data["reset_scope"] == "bulk" else "Single reset"
+        updated_at = timezone.now()
+        updated_ip = request.META.get("REMOTE_ADDR") or ""
+        history_rows = []
+
+        with transaction.atomic():
+            for credential in selected:
+                updated_password = make_password(new_password)
+                CredentialManager.objects.filter(pk=credential.pk).update(password=updated_password)
+                history_rows.append(CredentialUpdateHistory(
+                    user_id=credential.user_id,
+                    update_type=update_type,
+                    username=credential.username,
+                    existing_password=password_for_history(credential.password),
+                    updated_password=updated_password,
+                    updated_at=updated_at,
+                    updated_by=actor.user_id,
+                    updated_ip=updated_ip,
+                ))
+            CredentialUpdateHistory.objects.bulk_create(history_rows)
+
+        if form.cleaned_data["notify_users"]:
+            failed_notifications = []
+            for credential in selected:
+                try:
+                    send_mail(
+                        "Your SchoolHub password was changed",
+                        f"Hello {credential.username}, your SchoolHub password was changed by an administrator. If you did not expect this change, contact your school administrator.",
+                        settings.DEFAULT_FROM_EMAIL,
+                        [credential.email_id],
+                        fail_silently=False,
+                    )
+                except Exception:
+                    logger.exception("Unable to send password-change notification to %s", credential.username)
+                    failed_notifications.append(credential.username)
+            if failed_notifications:
+                messages.warning(request, "Passwords were updated, but email could not be sent to: " + ", ".join(failed_notifications))
+
+        messages.success(request, f"Password updated for {len(selected)} account(s).")
+        return redirect("credential-manager")
+
+    context = {
+        "modules": modules_for(request.user),
+        "roles": user_roles(request.user),
+        "active_page": "access-control",
+        "form": form,
+    }
+    return render(request, "portal/credential_manager.html", context)
 
 
 def external_master_records(request, mappings, mapping, tables, table_name):
@@ -335,22 +439,50 @@ def access_control(request, tab):
     if tab not in ("role-module-mapping", "user-menu-access"):
         raise Http404
     is_role_tab = tab == "role-module-mapping"
-    choices = Group.objects.filter(name__in=ROLES).exclude(name="Admin").order_by("name") if is_role_tab else get_user_model().objects.order_by("username")
+    choices = (
+        UserRoleMaster.objects.filter(status=True)
+        .exclude(role_name__isnull=True)
+        .exclude(role_name="")
+        .exclude(role_name="Super Admin")
+        .order_by("role_id")
+        if is_role_tab else get_user_model().objects.order_by("username")
+    )
     target_id = request.POST.get("target") if request.method == "POST" else request.GET.get("target")
     target = selected_object(choices, target_id) if target_id else choices.first()
     form = None
     if target:
-        form_class = {"role-module-mapping": RoleMenusForm, "user-menu-access": UserSubmenusForm}[tab]
         if tab == "role-module-mapping":
-            selected = target.portal_menus.filter(admin_only=False)
+            form_class = RoleModuleMappingForm
+            selected = ModuleMaster.objects.filter(
+                module_id__in=RoleModuleMapping.objects.filter(role_id=target.role_id).values_list("module_id", flat=True)
+            )
+            field_name = "modules"
         else:
+            form_class = UserSubmenusForm
             selected = target.portal_submenus.filter(menu__admin_only=False)
-        field_name = {"role-module-mapping": "menus", "user-menu-access": "submenus"}[tab]
+            field_name = "submenus"
         form = form_class(request.POST if request.method == "POST" else None, initial={field_name: selected})
         if request.method == "POST" and form.is_valid():
             assigned = form.cleaned_data[field_name]
             if tab == "role-module-mapping":
-                target.portal_menus.set(assigned)
+                assigned_ids = {module.module_id for module in assigned}
+                with transaction.atomic():
+                    current = RoleModuleMapping.objects.filter(role_id=target.role_id)
+                    current.exclude(module_id__in=assigned_ids).delete()
+                    existing_ids = set(current.values_list("module_id", flat=True))
+                    now = timezone.now()
+                    actor_id = request.session.get("credential_user_id")
+                    ip_address = request.META.get("REMOTE_ADDR", "")
+                    RoleModuleMapping.objects.bulk_create([
+                        RoleModuleMapping(
+                            role_id=target.role_id,
+                            module_id=module_id,
+                            mapped_by=actor_id,
+                            mapped_at=now,
+                            mapped_ip=ip_address,
+                        )
+                        for module_id in assigned_ids - existing_ids
+                    ])
             else:
                 target.portal_submenus.set(assigned)
             messages.success(request, "Access assignments saved.")

@@ -25,6 +25,8 @@ class CredentialManager(models.Model):
     username = models.CharField(max_length=100, db_column="UserName", null=True)
     password = models.TextField(db_column="Password", null=True)
     status = models.BooleanField(db_column="Status", null=True)
+    email_id = models.CharField(max_length=200, db_column="EmailId", null=True, blank=True)
+    mobile_no = models.CharField(max_length=20, db_column="MobileNo", null=True, blank=True)
 
     class Meta:
         managed = False
@@ -64,6 +66,22 @@ class LoginUserHistory(models.Model):
         db_table = "T_LoginUser_History"
 
 
+class CredentialUpdateHistory(models.Model):
+    update_id = models.BigAutoField(primary_key=True, db_column="CredUpdateId")
+    user_id = models.BigIntegerField(db_column="UserId")
+    update_type = models.CharField(max_length=100, db_column="UpdateType")
+    username = models.CharField(max_length=100, db_column="UserName")
+    existing_password = models.TextField(db_column="ExistingPassword")
+    updated_password = models.TextField(db_column="UpdatedPassword")
+    updated_at = LoginHistoryDateTimeField(db_column="UpdatedDt")
+    updated_by = models.BigIntegerField(db_column="UpdatedBy")
+    updated_ip = models.TextField(db_column="UpdatedIP")
+
+    class Meta:
+        managed = False
+        db_table = "T_Credential_Update_History"
+
+
 class ModuleMaster(models.Model):
     module_id = models.BigAutoField(primary_key=True, db_column="ModuleId")
     module_name = models.CharField(max_length=500, db_column="ModuleName", null=True)
@@ -75,6 +93,22 @@ class ModuleMaster(models.Model):
     class Meta:
         managed = False
         db_table = "T_Modules_Master"
+
+    def __str__(self):
+        return self.module_name or ""
+
+
+class RoleModuleMapping(models.Model):
+    mapping_id = models.BigAutoField(primary_key=True, db_column="RoleModuleMappingId")
+    module_id = models.BigIntegerField(db_column="ModuleId", null=True)
+    role_id = models.BigIntegerField(db_column="RoleId", null=True)
+    mapped_by = models.BigIntegerField(db_column="MappedBy", null=True)
+    mapped_at = models.DateTimeField(db_column="MappedDt", null=True)
+    mapped_ip = models.CharField(max_length=200, db_column="MappedIP", null=True)
+
+    class Meta:
+        managed = False
+        db_table = "T_Role_Module_Mapping"
 
 
 class MenuMaster(models.Model):

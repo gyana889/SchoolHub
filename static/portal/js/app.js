@@ -100,7 +100,27 @@ document.addEventListener('DOMContentLoaded', () => {
         updateColumns();
     }
     const recordForm = document.querySelector('[data-dynamic-record-form]');
-    recordForm?.querySelectorAll('.dynamic-field').forEach((container) => {
+    if (recordForm) {
+        const typeToggleLabel = document.createElement('label');
+        typeToggleLabel.className = 'element-type-toggle record-type-toggle';
+        typeToggleLabel.hidden = true;
+        const typeToggle = document.createElement('input');
+        typeToggle.type = 'checkbox';
+        typeToggle.setAttribute('aria-label', 'Show input type options');
+        const typeToggleTrack = document.createElement('span');
+        typeToggleTrack.className = 'element-type-toggle-track';
+        typeToggleTrack.setAttribute('aria-hidden', 'true');
+        const typeToggleText = document.createElement('span');
+        typeToggleText.textContent = 'Change input type';
+        typeToggleLabel.append(typeToggle, typeToggleTrack, typeToggleText);
+        recordForm.closest('.master-form-section')?.querySelector('.master-section-title')?.append(typeToggleLabel);
+        typeToggle.addEventListener('change', () => {
+            recordForm.querySelectorAll('.element-type-controls').forEach((controls) => {
+                controls.hidden = !typeToggle.checked;
+            });
+        });
+
+        recordForm.querySelectorAll('.dynamic-field').forEach((container) => {
         let control = container.querySelector('input, select, textarea');
         if (!control) return;
         const isChoice = control.tagName === 'SELECT';
@@ -110,16 +130,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const fieldName = control.name;
         const label = container.querySelector('label');
         const preferenceKey = `schoolhub-field:${recordForm.dataset.recordScope}:${fieldName}`;
+        const typeControls = document.createElement('div');
+        typeControls.className = 'element-type-controls';
+        typeControls.hidden = true;
         const selectorLabel = document.createElement('label');
         selectorLabel.className = 'element-type-label';
-        selectorLabel.textContent = `Input type for ${label.textContent}`;
+        selectorLabel.textContent = 'Input type';
         const selector = document.createElement('select');
         selector.className = 'element-type-select';
         selector.setAttribute('aria-label', selectorLabel.textContent);
         const choices = isChoice ? [['select', 'Dropdown'], ['radio', 'Radio choices']] : [['text', 'Text box'], ['textarea', 'Multiline text']];
         choices.forEach(([value, name]) => selector.add(new Option(name, value)));
         selectorLabel.append(selector);
-        container.append(selectorLabel);
+        typeControls.append(selectorLabel);
+        container.append(typeControls);
+        typeToggleLabel.hidden = false;
         const applyType = (type) => {
             const value = control.dataset.radioGroup ? control.querySelector('input:checked')?.value || '' : control.value;
             let replacement;
@@ -166,7 +191,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 applyType(saved);
             }
         } catch (error) {}
-    });
+        });
+    }
     const menu = document.querySelector('.mobile-menu');
     const sidebar = document.querySelector('.sidebar');
     const shell = document.querySelector('.app-shell');
@@ -219,6 +245,69 @@ document.addEventListener('DOMContentLoaded', () => {
             password.type = visible ? 'text' : 'password';
             toggle.setAttribute('aria-label', visible ? 'Hide password' : 'Show password');
             toggle.setAttribute('title', visible ? 'Hide password' : 'Show password');
+        });
+    }
+    const passwordResetForm = document.querySelector('[data-password-reset]');
+    if (passwordResetForm) {
+        const updateScope = () => {
+            const scope = passwordResetForm.querySelector('input[name="reset_scope"]:checked')?.value;
+            passwordResetForm.querySelectorAll('[data-reset-scope]').forEach((container) => {
+                container.hidden = container.dataset.resetScope !== scope;
+            });
+        };
+        passwordResetForm.querySelectorAll('input[name="reset_scope"]').forEach((input) => {
+            input.addEventListener('change', updateScope);
+        });
+        updateScope();
+    }
+    const deleteDialog = document.querySelector('[data-delete-dialog]');
+    const deleteDialogPanel = deleteDialog?.querySelector('.confirm-dialog');
+    const deleteConfirmButton = deleteDialog?.querySelector('[data-delete-confirm]');
+    const deleteCancelButton = deleteDialog?.querySelector('[data-delete-cancel]');
+    const deleteForms = document.querySelectorAll('form[onsubmit*="confirm("]');
+    let pendingDeleteForm = null;
+    let deleteFocusOrigin = null;
+    const closeDeleteDialog = () => {
+        if (!deleteDialog || !pendingDeleteForm) return;
+        deleteDialog.hidden = true;
+        document.querySelector('.app-main')?.classList.remove('confirm-dialog-open');
+        pendingDeleteForm = null;
+        deleteFocusOrigin?.focus();
+        deleteFocusOrigin = null;
+    };
+    if (deleteDialog && deleteDialogPanel && deleteConfirmButton && deleteCancelButton) {
+        deleteForms.forEach((form) => {
+            form.removeAttribute('onsubmit');
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                pendingDeleteForm = form;
+                deleteFocusOrigin = event.submitter || form.querySelector('button[type="submit"]');
+                deleteDialog.hidden = false;
+                document.querySelector('.app-main')?.classList.add('confirm-dialog-open');
+                deleteConfirmButton.focus();
+            });
+        });
+        deleteCancelButton.addEventListener('click', closeDeleteDialog);
+        deleteDialog.addEventListener('click', (event) => {
+            if (event.target === deleteDialog) closeDeleteDialog();
+        });
+        deleteConfirmButton.addEventListener('click', () => {
+            if (pendingDeleteForm) HTMLFormElement.prototype.submit.call(pendingDeleteForm);
+        });
+        document.addEventListener('keydown', (event) => {
+            if (deleteDialog.hidden) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeDeleteDialog();
+            } else if (event.key === 'Tab') {
+                event.preventDefault();
+                const activeButton = document.activeElement;
+                if (event.shiftKey) {
+                    (activeButton === deleteCancelButton ? deleteConfirmButton : deleteCancelButton).focus();
+                } else {
+                    (activeButton === deleteConfirmButton ? deleteCancelButton : deleteConfirmButton).focus();
+                }
+            }
         });
     }
 });

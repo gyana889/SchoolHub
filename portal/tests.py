@@ -4,12 +4,13 @@ from datetime import datetime, timezone as datetime_timezone
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
-from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import check_password, make_password
+from django.core import mail
 from django.contrib.sessions.models import Session
 from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import DatabaseError, connection
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
@@ -20,7 +21,7 @@ from openpyxl import Workbook
 
 from .dynamic_master import relation_header
 from .catalog import modules_for
-from .models import Country, CredentialManager, LoginUserHistory, MasterMapping, MasterTableMapper, MasterValue, Menu, MenuMaster, ModuleMaster, State, SubMenu, UserAccess, UserRoleMaster
+from .models import Country, CredentialManager, CredentialUpdateHistory, LoginUserHistory, MasterMapping, MasterTableMapper, MasterValue, Menu, MenuMaster, ModuleMaster, RoleModuleMapping, State, SubMenu, UserAccess, UserRoleMaster
 
 
 class MenuModelTests(TestCase):
@@ -99,8 +100,8 @@ class DynamicNavigationTests(TestCase):
         self.assertEqual(admin_modules[0]["color"], "blue")
         self.client.force_login(self.admin_user)
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, 'class="module-nav-icon blue"')
-        self.assertContains(response, 'data-lucide="graduation-cap"')
+        self.assertContains(response, '<i data-lucide="graduation-cap"></i>')
+        self.assertNotContains(response, "module-nav-icon")
 
         student = User.objects.create_user(username="nav-student")
         student_role = UserRoleMaster.objects.create(role_name="Student", status=True)
@@ -168,6 +169,16 @@ class MasterPageTests(TestCase):
         self.assertEqual(response.context["mapping"], self.country_mapping)
         self.assertEqual(self.client.get(reverse("master-records"), {"master": "invalid"}).status_code, 404)
         self.assertEqual(self.client.get(reverse("master-mappings"), {"edit": "invalid"}).status_code, 404)
+
+    def test_master_records_uses_shared_accessible_delete_dialog(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("master-records"))
+
+        self.assertContains(response, 'data-delete-dialog')
+        self.assertContains(response, 'role="alertdialog"')
+        self.assertContains(response, 'data-delete-cancel')
+        self.assertContains(response, 'data-delete-confirm')
 
     def test_builtin_record_list_paginates_with_serial_numbers(self):
         self.client.force_login(self.admin)
@@ -659,11 +670,34 @@ class MasterPageTests(TestCase):
 
 
 class AccessControlTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(UserRoleMaster)
+            schema_editor.create_model(ModuleMaster)
+            schema_editor.create_model(RoleModuleMapping)
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        with connection.schema_editor() as schema_editor:
+            schema_editor.delete_model(RoleModuleMapping)
+            schema_editor.delete_model(ModuleMaster)
+            schema_editor.delete_model(UserRoleMaster)
+
     def setUp(self):
         self.admin = User.objects.create_superuser(username="access-admin", password="test-password-123")
         self.student = User.objects.create_user(username="access-student", password="test-password-123")
         self.role = Group.objects.get(name="Student")
         self.student.groups.add(self.role)
+        UserRoleMaster.objects.all().delete()
+        RoleModuleMapping.objects.all().delete()
+        self.super_admin_role = UserRoleMaster.objects.create(role_name="Super Admin", status=True)
+        self.student_role = UserRoleMaster.objects.create(role_name="Student", status=True)
+        self.admin_role = UserRoleMaster.objects.create(role_name="Admin", status=True)
+        self.module = ModuleMaster.objects.create(module_name="Master Data", sequence=10, icon="database", color="mint", admin_only=False)
+        self.other_module = ModuleMaster.objects.create(module_name="Students", sequence=20, icon="graduation-cap", color="blue", admin_only=False)
         self.menu = Menu.objects.get(slug="master-data")
         self.records = SubMenu.objects.get(menu=self.menu, slug="master-records")
         self.mappings = SubMenu.objects.get(menu=self.menu, slug="table-mappings")
@@ -707,15 +741,53 @@ class AccessControlTests(TestCase):
 
     def test_admin_can_manage_role_modules_and_user_menu_access(self):
         self.client.force_login(self.admin)
-        response = self.client.post(reverse("access-control", args=["role-module-mapping"]), {"target": self.role.pk, "menus": [self.menu.pk]})
+        response = self.client.post(reverse("access-control", args=["role-module-mapping"]), {"target": self.student_role.pk, "modules": [self.module.pk]})
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(self.menu.roles.filter(pk=self.role.pk).exists())
+        module_mapping = RoleModuleMapping.objects.get(role_id=self.student_role.pk)
+        self.assertEqual(module_mapping.module_id, self.module.pk)
+        self.assertIsNotNone(module_mapping.mapped_at)
+        self.assertEqual(module_mapping.mapped_ip, "127.0.0.1")
+        self.menu.roles.add(self.role)
         response = self.client.post(reverse("access-control", args=["user-menu-access"]), {"target": self.student.pk, "submenus": [self.records.pk]})
         self.assertEqual(response.status_code, 302)
         self.client.force_login(self.student)
         self.assertEqual(self.client.get(reverse("master-records")).status_code, 200)
         self.assertEqual(self.client.get(reverse("master-mappings")).status_code, 403)
         self.assertEqual(self.client.get(reverse("access-control", args=["user-menu-access"])).status_code, 403)
+
+    def test_role_module_form_uses_database_roles_and_modules(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("access-control", args=["role-module-mapping"]))
+
+        self.assertContains(response, f'<option value="{self.student_role.pk}"')
+        self.assertContains(response, f'<option value="{self.admin_role.pk}"')
+        self.assertNotContains(response, f'<option value="{self.super_admin_role.pk}"')
+        self.assertContains(response, "Modules for")
+        module_choices = str(response.context["form"]["modules"])
+        self.assertIn("Master Data", module_choices)
+        self.assertIn("Students", module_choices)
+
+        response = self.client.post(reverse("access-control", args=["role-module-mapping"]), {
+            "target": self.student_role.pk,
+            "modules": [self.module.pk, self.other_module.pk],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertSetEqual(
+            set(RoleModuleMapping.objects.filter(role_id=self.student_role.pk).values_list("module_id", flat=True)),
+            {self.module.pk, self.other_module.pk},
+        )
+        response = self.client.post(reverse("access-control", args=["role-module-mapping"]), {
+            "target": self.student_role.pk,
+            "modules": [self.other_module.pk],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertSetEqual(
+            set(RoleModuleMapping.objects.filter(role_id=self.student_role.pk).values_list("module_id", flat=True)),
+            {self.other_module.pk},
+        )
 
     def test_user_roles_page_is_removed_and_admin_only_submenus_cannot_be_assigned(self):
         group_admin = User.objects.create_user(username="group-admin", password="test-password-123")
@@ -742,6 +814,125 @@ class AccessControlTests(TestCase):
         self.assertContains(response, "Reference Data")
         self.assertContains(response, "Master records")
         self.assertNotContains(response, "Table mappings")
+
+
+class CredentialManagerPageTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(UserRoleMaster)
+            schema_editor.create_model(CredentialManager)
+            schema_editor.create_model(LoginUserHistory)
+            schema_editor.create_model(ModuleMaster)
+            schema_editor.create_model(MenuMaster)
+            schema_editor.create_model(UserAccess)
+            schema_editor.create_model(RoleModuleMapping)
+            schema_editor.create_model(CredentialUpdateHistory)
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        with connection.schema_editor() as schema_editor:
+            schema_editor.delete_model(CredentialUpdateHistory)
+            schema_editor.delete_model(RoleModuleMapping)
+            schema_editor.delete_model(UserAccess)
+            schema_editor.delete_model(MenuMaster)
+            schema_editor.delete_model(ModuleMaster)
+            schema_editor.delete_model(LoginUserHistory)
+            schema_editor.delete_model(CredentialManager)
+            schema_editor.delete_model(UserRoleMaster)
+
+    def setUp(self):
+        self.super_admin_role = UserRoleMaster.objects.create(role_name="Super Admin", status=True)
+        self.admin_role = UserRoleMaster.objects.create(role_name="Admin", status=True)
+        self.student_role = UserRoleMaster.objects.create(role_name="Student", status=True)
+        self.super_admin = User.objects.create_user(username="password-super", email="super@example.com")
+        self.admin = User.objects.create_user(username="password-admin", email="admin@example.com")
+        self.student = User.objects.create_user(username="password-student", email="student@example.com")
+        self.super_admin_credential = CredentialManager.objects.create(role=self.super_admin_role, username=self.super_admin.username, password=make_password("OldSuperPassword#123"), status=True, email_id="credential-super@example.com", mobile_no="9000000001")
+        self.admin_credential = CredentialManager.objects.create(role=self.admin_role, username=self.admin.username, password=make_password("OldAdminPassword#123"), status=True, email_id="credential-admin@example.com", mobile_no="9000000002")
+        self.student_credential = CredentialManager.objects.create(role=self.student_role, username=self.student.username, password=make_password("OldStudentPassword#123"), status=True, email_id="credential-student@example.com", mobile_no="9000000003")
+        self.module = ModuleMaster.objects.create(module_name="Access Control", sequence=1, admin_only=True)
+        self.menu = MenuMaster.objects.create(module_id=self.module.module_id, menu_name="Change Password", sequence=1, url=reverse("credential-manager"))
+
+    def grant_admin_access(self):
+        RoleModuleMapping.objects.create(role_id=self.admin_role.role_id, module_id=self.module.module_id)
+
+    def test_only_super_admin_or_assigned_admin_can_open_page(self):
+        self.client.force_login(self.super_admin)
+        self.assertEqual(self.client.get(reverse("credential-manager")).status_code, 200)
+
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse("credential-manager")).status_code, 403)
+        self.grant_admin_access()
+        self.assertEqual(self.client.get(reverse("credential-manager")).status_code, 200)
+
+        RoleModuleMapping.objects.create(role_id=self.student_role.role_id, module_id=self.module.module_id)
+        self.client.force_login(self.student)
+        self.assertEqual(self.client.get(reverse("credential-manager")).status_code, 403)
+
+    def test_single_reset_hashes_password_and_records_history(self):
+        self.grant_admin_access()
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("credential-manager"), {
+            "reset_scope": "single",
+            "credential": self.student_credential.user_id,
+            "new_password": "NewRandomPassword#2026",
+            "confirm_password": "NewRandomPassword#2026",
+        })
+
+        self.assertRedirects(response, reverse("credential-manager"))
+        self.student_credential.refresh_from_db()
+        self.assertTrue(check_password("NewRandomPassword#2026", self.student_credential.password))
+        history = CredentialUpdateHistory.objects.get(user_id=self.student_credential.user_id)
+        self.assertEqual(history.update_type, "Single reset")
+        self.assertTrue(check_password("OldStudentPassword#123", history.existing_password))
+        self.assertTrue(check_password("NewRandomPassword#2026", history.updated_password))
+        self.assertEqual(history.updated_by, self.admin_credential.user_id)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_bulk_reset_updates_selected_accounts_and_sends_optional_notice(self):
+        self.grant_admin_access()
+        self.client.force_login(self.admin)
+        staff_role = UserRoleMaster.objects.create(role_name="Staff", status=True)
+        staff = User.objects.create_user(username="password-staff", email="staff@example.com")
+        staff_credential = CredentialManager.objects.create(role=staff_role, username=staff.username, password=make_password("OldStaffPassword#123"), status=True, email_id="credential-staff@example.com", mobile_no="9000000004")
+        response = self.client.post(reverse("credential-manager"), {
+            "reset_scope": "bulk",
+            "credentials": [self.student_credential.user_id, self.super_admin_credential.user_id],
+            "new_password": "BulkNewRandomPassword#2026",
+            "confirm_password": "BulkNewRandomPassword#2026",
+            "notify_users": "on",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(CredentialUpdateHistory.objects.count(), 0)
+
+        response = self.client.post(reverse("credential-manager"), {
+            "reset_scope": "bulk",
+            "credentials": [self.student_credential.user_id, staff_credential.user_id],
+            "new_password": "BulkNewRandomPassword#2026",
+            "confirm_password": "BulkNewRandomPassword#2026",
+            "notify_users": "on",
+        })
+
+        self.assertRedirects(response, reverse("credential-manager"))
+        self.student_credential.refresh_from_db()
+        staff_credential.refresh_from_db()
+        self.assertTrue(check_password("BulkNewRandomPassword#2026", self.student_credential.password))
+        self.assertTrue(check_password("BulkNewRandomPassword#2026", staff_credential.password))
+        history = CredentialUpdateHistory.objects.get(user_id=self.student_credential.user_id)
+        self.assertEqual(history.update_type, "Bulk reset")
+        self.assertEqual(CredentialUpdateHistory.objects.count(), 2)
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertCountEqual(
+            [message.recipients() for message in mail.outbox],
+            [["credential-student@example.com"], ["credential-staff@example.com"]],
+        )
+        self.assertIn("password was changed", mail.outbox[0].body)
+        self.assertNotIn("BulkNewRandomPassword#2026", mail.outbox[0].body)
 
 
 class PortalTests(TestCase):

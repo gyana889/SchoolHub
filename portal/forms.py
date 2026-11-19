@@ -8,11 +8,12 @@ from django.contrib.auth.hashers import check_password, identify_hasher, make_pa
 from django.contrib.auth.models import Group
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import ValidationError
+from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from django.utils import timezone
 
 from .catalog import ROLES, user_roles
-from .models import CredentialManager, MasterMapping, MasterMappingTable, MasterTableMapper, Menu, SubMenu, UserRoleMaster
+from .models import CredentialManager, MasterMapping, MasterMappingTable, MasterTableMapper, Menu, ModuleMaster, SubMenu, UserRoleMaster
 from .master_data import database_table_choices, database_table_columns, mapped_editable_columns, supported_table_names
 
 
@@ -193,8 +194,74 @@ class UserRolesForm(forms.Form):
     roles = forms.ModelMultipleChoiceField(queryset=Group.objects.filter(name__in=ROLES), required=False, widget=forms.CheckboxSelectMultiple)
 
 
-class RoleMenusForm(forms.Form):
-    menus = forms.ModelMultipleChoiceField(queryset=Menu.objects.filter(admin_only=False), required=False, widget=forms.CheckboxSelectMultiple)
+class RoleModuleMappingForm(forms.Form):
+    modules = forms.ModelMultipleChoiceField(queryset=ModuleMaster.objects.order_by("sequence", "module_id"), label="Modules", required=False, widget=forms.CheckboxSelectMultiple)
+
+
+class CredentialChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        role_name = obj.role.role_name if obj.role else "Unassigned role"
+        return f"{obj.username} ({role_name})"
+
+
+class CredentialMultipleChoiceField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        role_name = obj.role.role_name if obj.role else "Unassigned role"
+        return f"{obj.username} ({role_name})"
+
+
+class CredentialPasswordResetForm(forms.Form):
+    reset_scope = forms.ChoiceField(
+        label="Reset type",
+        choices=[("single", "Single account"), ("bulk", "Bulk reset")],
+        widget=forms.RadioSelect,
+    )
+    credential = CredentialChoiceField(queryset=CredentialManager.objects.none(), required=False, label="Account")
+    credentials = CredentialMultipleChoiceField(queryset=CredentialManager.objects.none(), required=False, label="Accounts")
+    new_password = forms.CharField(label="New password", strip=False, widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+    confirm_password = forms.CharField(label="Confirm new password", strip=False, widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+    notify_users = forms.BooleanField(label="Email users about the change", required=False)
+
+    def __init__(self, *args, actor_role, **kwargs):
+        super().__init__(*args, **kwargs)
+        credentials = CredentialManager.objects.filter(status=True).select_related("role").order_by("username", "user_id")
+        if actor_role != "Super Admin":
+            credentials = credentials.exclude(role__role_name="Super Admin")
+        self.fields["credential"].queryset = credentials
+        self.fields["credentials"].queryset = credentials
+
+    def clean(self):
+        cleaned_data = super().clean()
+        scope = cleaned_data.get("reset_scope")
+        if scope == "single":
+            accounts = [cleaned_data.get("credential")] if cleaned_data.get("credential") else []
+            if not accounts:
+                self.add_error("credential", "Select an account.")
+        else:
+            accounts = list(cleaned_data.get("credentials") or [])
+            if not accounts:
+                self.add_error("credentials", "Select at least one account.")
+        cleaned_data["selected_credentials"] = accounts
+
+        new_password = cleaned_data.get("new_password")
+        if new_password and new_password == cleaned_data.get("confirm_password"):
+            try:
+                validate_password(new_password)
+            except ValidationError as error:
+                self.add_error("new_password", error)
+
+        if cleaned_data.get("notify_users") and accounts:
+            missing_email = [
+                credential.username
+                for credential in accounts
+                if not credential.email_id
+            ]
+            if missing_email:
+                self.add_error("notify_users", "Add an EmailId in T_Credential_Manager for: " + ", ".join(missing_email))
+
+        if new_password and new_password != cleaned_data.get("confirm_password"):
+            self.add_error("confirm_password", "The passwords do not match.")
+        return cleaned_data
 
 
 class UserSubmenusForm(forms.Form):
