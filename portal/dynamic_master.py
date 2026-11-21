@@ -3,6 +3,7 @@ import re
 from zoneinfo import ZoneInfo
 
 from django import forms
+from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db import transaction
@@ -11,6 +12,8 @@ from django.utils import timezone
 
 AUDIT_USERS = {"createdby", "updatedby", "modifiedby"}
 AUDIT_DATES = {"createddt", "createddate", "updateddt", "updateddate", "modifieddt", "modifieddate"}
+AUDIT_IPS = {"createdip"}
+AUDIT_FIELDS = AUDIT_USERS | AUDIT_DATES | AUDIT_IPS
 
 
 def relation_header(column_name):
@@ -65,14 +68,19 @@ def relation_choices(table_name, key):
         return [(str(value), str(text) if text is not None else str(value)) for value, text in cursor.fetchall()]
 
 
-def dynamic_form(columns, relations, selected, data=None, initial=None):
+def dynamic_form(columns, relations, selected, data=None, initial=None, editing=False):
     fields = {}
+    form_initial = dict(initial or {})
     for column in columns:
         name = column["name"]
         kind = column["type"]
-        if name not in selected or column["generated"] or column["primary"] or name.lower() in AUDIT_USERS | AUDIT_DATES:
+        normalized_name = name.lower()
+        if name not in selected or column["generated"] or column["primary"] or normalized_name in AUDIT_FIELDS:
             continue
         options = {"label": name, "required": not column["nullable"]}
+        if normalized_name == "password" and editing:
+            options.update(disabled=True, widget=forms.TextInput(attrs={"readonly": True}))
+            form_initial[name] = "****" if initial and initial.get(name) else ""
         if name in relations:
             options["choices"] = [("", "Select an option")] + relation_choices(*relations[name])
             field = forms.ChoiceField(**options)
@@ -80,6 +88,8 @@ def dynamic_form(columns, relations, selected, data=None, initial=None):
             length = column["length"]
             if length and length > 0:
                 options["max_length"] = length // 2 if kind.startswith("n") and connection.vendor == "microsoft" else length
+            if normalized_name == "password" and not editing:
+                options["widget"] = forms.PasswordInput(attrs={"autocomplete": "new-password"})
             field = forms.CharField(**options)
         elif "int" in kind:
             field = forms.IntegerField(**options)
@@ -88,6 +98,13 @@ def dynamic_form(columns, relations, selected, data=None, initial=None):
                 options.update(max_digits=column["precision"], decimal_places=column["scale"])
             field = forms.DecimalField(**options)
         elif "bool" in kind or kind == "bit":
+            if name in form_initial and form_initial[name] is not None:
+                value = form_initial[name]
+                if isinstance(value, str):
+                    normalized_value = value.strip().casefold()
+                    form_initial[name] = "1" if normalized_value in {"1", "true", "yes", "on"} else "0"
+                else:
+                    form_initial[name] = "1" if bool(value) else "0"
             field = forms.TypedChoiceField(choices=[("", "Select an option"), ("1", "Yes"), ("0", "No")], coerce=lambda value: value == "1", empty_value=None, **options)
         elif "datetime" in kind or "timestamp" in kind:
             field = forms.DateTimeField(widget=forms.DateTimeInput(attrs={"type": "datetime-local"}), **options)
@@ -96,11 +113,11 @@ def dynamic_form(columns, relations, selected, data=None, initial=None):
         else:
             raise ValidationError(f"Column {name} has an unsupported database type.")
         fields[name] = field
-    return type("DynamicMasterForm", (forms.Form,), fields)(data=data, initial=initial)
+    return type("DynamicMasterForm", (forms.Form,), fields)(data=data, initial=form_initial)
 
 
 def dynamic_records(table_name, columns, primary, selected, record_id=None):
-    visible = [column["name"] for column in columns if column["name"] in selected and column["name"] != primary and column["name"].lower() not in AUDIT_USERS | AUDIT_DATES]
+    visible = [column["name"] for column in columns if column["name"] in selected and column["name"] != primary and column["name"].lower() not in AUDIT_FIELDS]
     names = [primary] + visible
     sql = f"SELECT {', '.join(connection.ops.quote_name(name) for name in names)} FROM {quoted_table(table_name)}"
     params = []
@@ -134,10 +151,22 @@ def normalize_record_id(value, columns, primary):
     return str(value)
 
 
-def save_dynamic_record(table_name, columns, primary, selected, values, actor_id, record_id=None):
-    allowed = {column["name"] for column in columns if column["name"] in selected and not column["generated"] and not column["primary"] and column["name"].lower() not in AUDIT_USERS | AUDIT_DATES}
+def save_dynamic_record(table_name, columns, primary, selected, values, actor_id, record_id=None, actor_ip=None):
+    allowed = {
+        column["name"] for column in columns
+        if column["name"] in selected
+        and not column["generated"]
+        and not column["primary"]
+        and column["name"].lower() not in AUDIT_FIELDS
+        and not (record_id is not None and column["name"].lower() == "password")
+    }
     nullable = {column["name"] for column in columns if column["nullable"]}
     values = {name: None if value == "" and name in nullable else value for name, value in values.items() if name in allowed}
+    if record_id is None:
+        values = {
+            name: make_password(str(value)) if name.lower() == "password" and value not in (None, "") else value
+            for name, value in values.items()
+        }
     if any(column["name"] in selected and column["name"].lower() in AUDIT_USERS for column in columns) and actor_id is None:
         raise ValidationError("A credential user ID is required to save this record.")
     now = timezone.localtime(timezone.now(), ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
@@ -149,6 +178,8 @@ def save_dynamic_record(table_name, columns, primary, selected, values, actor_id
             values[name] = actor_id
         elif name.lower() in AUDIT_DATES:
             values[name] = now
+        elif name.lower() in AUDIT_IPS:
+            values[name] = actor_ip or ""
     if record_id is None:
         missing = [column["name"] for column in columns if not column["nullable"] and not column["generated"] and column["default"] is None and column["name"] not in values]
         if missing:
@@ -168,7 +199,7 @@ def save_dynamic_record(table_name, columns, primary, selected, values, actor_id
             cursor.execute(sql, [values[name] for name in names] + [record_id])
 
 
-def import_dynamic_spreadsheet(table_name, columns, primary, relations, selected, uploaded_file, actor_id):
+def import_dynamic_spreadsheet(table_name, columns, primary, relations, selected, uploaded_file, actor_id, actor_ip=None):
     from .master_data import MAX_UPLOAD_ROWS, spreadsheet_reader
 
     headers, rows = spreadsheet_reader(uploaded_file)
@@ -187,6 +218,7 @@ def import_dynamic_spreadsheet(table_name, columns, primary, relations, selected
             if None in row or any(value is None for value in row.values()):
                 raise ValidationError(f"Row {row_number}: the number of columns does not match the header.")
             record_id = row.get(primary, "").strip()
+            initial = None
             if record_id:
                 record_id = normalize_record_id(record_id, columns, primary)
                 if record_id in seen:
@@ -195,9 +227,10 @@ def import_dynamic_spreadsheet(table_name, columns, primary, relations, selected
                 _, matches = dynamic_records(table_name, columns, primary, selected, record_id)
                 if not matches:
                     raise ValidationError(f"Row {row_number}: record ID was not found.")
-            form = dynamic_form(columns, relations, selected, data=row)
+                initial = matches[0]
+            form = dynamic_form(columns, relations, selected, data=row, initial=initial, editing=bool(record_id))
             if not form.is_valid():
                 errors = "; ".join(f"{name}: {', '.join(messages)}" for name, messages in form.errors.items())
                 raise ValidationError(f"Row {row_number}: {errors}")
-            save_dynamic_record(table_name, columns, primary, selected, form.cleaned_data, actor_id, record_id or None)
+            save_dynamic_record(table_name, columns, primary, selected, form.cleaned_data, actor_id, record_id or None, actor_ip)
     return len(rows)

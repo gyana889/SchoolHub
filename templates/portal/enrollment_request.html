@@ -1,0 +1,37 @@
+{% extends 'portal/app_base.html' %}
+{% block title %}Enrollment Request | SchoolHub{% endblock %}
+{% block breadcrumb %}Students / Enrollment Request{% endblock %}
+{% block app_content %}
+<div class="master-heading enrollment-heading">
+    <div><div class="section-label"><span class="label-dot"></span> STUDENTS</div><h1>Enrollment Request<span class="heading-period">.</span></h1><p>Review prospective student applications and start a new request.</p></div>
+    <a class="button button-dark enrollment-new-button" href="{% url 'enrollment-new' %}"><i data-lucide="plus"></i> New request</a>
+</div>
+{% for message in messages %}<div class="master-message {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}
+<section class="enrollment-register">
+    <div class="enrollment-register-toolbar">
+        <form method="get" class="enrollment-search">
+            <label for="enrollment-search">Search requests</label>
+            <div><i data-lucide="search"></i><input id="enrollment-search" type="search" name="q" value="{{ search }}" placeholder="Name or registration number"><button class="outline-button" type="submit">Search</button></div>
+        </form>
+        <span class="record-count">{{ results.total }} REQUEST{{ results.total|pluralize|upper }}</span>
+    </div>
+    <div class="table-scroll">
+        <table class="data-table enrollment-table">
+            <thead><tr><th>STUDENT</th><th>REGISTRATION NO.</th><th>CLASS</th><th>YEAR</th><th>APPLIED</th><th>STATUS</th></tr></thead>
+            <tbody>
+                {% for row in results.rows %}
+                <tr><td class="enrollment-student">{{ row.full_name|default:'Unnamed applicant' }}</td><td class="table-code">{{ row.registration_number|default:'-' }}</td><td>{{ row.class_name|default:'-' }}</td><td>{{ row.registration_year|default:'-' }}</td><td>{{ row.date_applied|date:'d M Y'|default:'-' }}</td><td><span class="enrollment-status">{{ row.admission_status|default:'Unknown' }}</span></td></tr>
+                {% empty %}
+                <tr><td colspan="6" class="table-empty"><i data-lucide="inbox"></i><strong>No enrollment requests found</strong><span>{% if search %}Try a different name or registration number.{% else %}New requests will appear here after submission.{% endif %}</span></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if results.page_count > 1 %}
+    <nav class="enrollment-pagination" aria-label="Enrollment request pages">
+        <span>Page {{ results.page }} of {{ results.page_count }}</span>
+        <div>{% if results.page > 1 %}<a href="?q={{ search|urlencode }}&amp;page={{ results.page|add:'-1' }}" aria-label="Previous page"><i data-lucide="chevron-left"></i> Previous</a>{% endif %}{% if results.page < results.page_count %}<a href="?q={{ search|urlencode }}&amp;page={{ results.page|add:'1' }}" aria-label="Next page">Next <i data-lucide="chevron-right"></i></a>{% endif %}</div>
+    </nav>
+    {% endif %}
+</section>
+{% endblock %}

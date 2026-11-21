@@ -2,13 +2,31 @@ import json
 import logging
 
 from django.conf import settings
+from django.contrib.auth import logout
 from django.db import DatabaseError
 from django.utils import timezone
 
-from .models import LoginUserHistory
+from .models import CredentialManager, LoginUserHistory
 
 
 logger = logging.getLogger(__name__)
+
+
+class CredentialSessionMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        credential_id = request.session.get("credential_user_id")
+        if request.user.is_authenticated and credential_id and request.session.get("login_history_id"):
+            credential = CredentialManager.objects.select_related("role").filter(
+                user_id=credential_id, username__iexact=request.user.get_username(), status=True, role__status=True,
+            ).first()
+            if credential is None:
+                logout(request)
+            else:
+                request.user._portal_credential = credential
+        return self.get_response(request)
 
 
 class ExpiredSessionLogoutMiddleware:

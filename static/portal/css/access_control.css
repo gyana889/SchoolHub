@@ -1,0 +1,10 @@
+.access-module-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 22px}
+.access-form fieldset.access-module-box{min-width:0;margin:0;padding:0 12px 10px;border:1px solid #e4ebe2;border-radius:4px;background:#fcfdfb}
+.access-module-box legend{max-width:100%;padding:0 5px;color:#53675b;font-size:12px;font-weight:700;letter-spacing:0;text-transform:none;overflow-wrap:anywhere}
+.access-module-box>label{justify-content:flex-start;border-top:1px solid #edf2eb}
+.access-module-box>label:first-of-type{border-top:0}
+.access-module-box.is-admin-only{background:#f6f7f4}
+.access-module-box.is-admin-only>label{color:#8a968e;cursor:not-allowed}
+.access-module-box input:disabled{accent-color:#9aa99e}
+.access-module-empty{margin:8px 0;color:#91a096;font-size:11px}
+@media(max-width:800px){.access-module-grid{grid-template-columns:minmax(0,1fr)}}

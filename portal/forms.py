@@ -13,7 +13,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .catalog import ROLES, user_roles
-from .models import CredentialManager, MasterMapping, MasterMappingTable, MasterTableMapper, Menu, ModuleMaster, SubMenu, UserRoleMaster
+from .models import CredentialManager, MasterMapping, MasterMappingTable, MasterTableMapper, Menu, MenuMaster, ModuleMaster, SubMenu, UserRoleMaster
 from .master_data import database_table_choices, database_table_columns, mapped_editable_columns, supported_table_names
 
 
@@ -266,3 +266,11 @@ class CredentialPasswordResetForm(forms.Form):
 
 class UserSubmenusForm(forms.Form):
     submenus = forms.ModelMultipleChoiceField(queryset=SubMenu.objects.filter(menu__admin_only=False).select_related("menu").order_by("menu__position", "position", "name"), required=False, widget=forms.CheckboxSelectMultiple)
+
+
+class UserMenuAccessForm(forms.Form):
+    menus = forms.ModelMultipleChoiceField(queryset=MenuMaster.objects.none(), required=False)
+
+    def __init__(self, *args, menu_queryset, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["menus"].queryset = menu_queryset

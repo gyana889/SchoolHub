@@ -8,6 +8,11 @@ ROLES = ("Admin", "Teacher", "Staff", "Student", "Parent")
 
 
 def user_roles(user):
+    credential = getattr(user, "_portal_credential", None)
+    if credential:
+        role_name = credential.role.role_name if credential.role else ""
+        role_name = "Admin" if role_name == "Super Admin" else role_name
+        return [role_name] if role_name in ROLES else []
     if user.is_superuser:
         return ["Admin"]
     group_names = set(user.groups.values_list("name", flat=True))
@@ -23,7 +28,10 @@ def _legacy_modules_for(user):
     menus = Menu.objects.all()
     submenus = SubMenu.objects.all()
     if not admin:
-        menus = menus.filter(admin_only=False, roles__user=user).distinct()
+        if getattr(user, "_portal_credential", None):
+            menus = menus.filter(admin_only=False, roles__name__in=user_roles(user)).distinct()
+        else:
+            menus = menus.filter(admin_only=False, roles__user=user).distinct()
         submenus = submenus.filter(users=user)
     menus = menus.prefetch_related(Prefetch("submenus", queryset=submenus, to_attr="allowed_submenus"))
     return [{
@@ -38,8 +46,8 @@ def modules_for(user):
     if not required_tables.issubset(connection.introspection.table_names()):
         return _legacy_modules_for(user)
 
-    credential = None
-    if not user.is_superuser:
+    credential = getattr(user, "_portal_credential", None)
+    if not credential and not user.is_superuser:
         try:
             credential = CredentialManager.objects.select_related("role").get(username__iexact=user.get_username())
         except (CredentialManager.DoesNotExist, CredentialManager.MultipleObjectsReturned):
@@ -61,10 +69,11 @@ def modules_for(user):
     menus_by_module = {}
     for menu in menus:
         if menu.menu_name:
+            section_slug = slugify(menu.menu_name) or f"menu-{menu.menu_id}"
             menus_by_module.setdefault(menu.module_id, []).append({
-                "slug": slugify(menu.menu_name) or f"menu-{menu.menu_id}",
+                "slug": section_slug,
                 "name": menu.menu_name,
-                "path": menu.url or "",
+                "path": menu.url or {"enrollment-request": "/dashboard/students/enrollment-request/", "student-registration": "/dashboard/students/student-registration/"}.get(section_slug, ""),
             })
 
     result = []
@@ -91,4 +100,6 @@ def can_access_submenu(user, menu_slug, submenu_slug):
     items = SubMenu.objects.filter(menu__slug=menu_slug, slug=submenu_slug)
     if is_admin(user):
         return items.exists()
+    if getattr(user, "_portal_credential", None):
+        return items.filter(menu__admin_only=False, menu__roles__name__in=user_roles(user), users=user).exists()
     return items.filter(menu__admin_only=False, menu__roles__user=user, users=user).exists()

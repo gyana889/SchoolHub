@@ -1,6 +1,6 @@
 import json
 from io import BytesIO
-from datetime import datetime, timezone as datetime_timezone
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
@@ -19,7 +19,7 @@ from importlib import import_module
 from types import SimpleNamespace
 from openpyxl import Workbook
 
-from .dynamic_master import relation_header
+from .dynamic_master import dynamic_form, relation_header
 from .catalog import modules_for
 from .models import Country, CredentialManager, CredentialUpdateHistory, LoginUserHistory, MasterMapping, MasterTableMapper, MasterValue, Menu, MenuMaster, ModuleMaster, RoleModuleMapping, State, SubMenu, UserAccess, UserRoleMaster
 
@@ -87,6 +87,27 @@ class DynamicNavigationTests(TestCase):
         self.assertEqual([menu["name"] for menu in modules[0]["sections"]], ["Profiles", "Admissions"])
         self.assertEqual(modules[0]["sections"][0]["path"], "/dashboard/students/student-profiles/")
 
+    def test_enrollment_menu_without_url_uses_the_enrollment_request_route(self):
+        MenuMaster.objects.create(module_id=self.first_module.module_id, menu_name="Enrollment Request")
+
+        modules = modules_for(self.super_user)
+
+        enrollment = next(section for section in modules[0]["sections"] if section["slug"] == "enrollment-request")
+        self.assertEqual(enrollment["path"], "/dashboard/students/enrollment-request/")
+
+    def test_shared_username_uses_the_selected_credential_for_menu_access(self):
+        user = User.objects.create_user(username="shared-scholar")
+        student_role = UserRoleMaster.objects.create(role_name="Student", status=True)
+        parent_role = UserRoleMaster.objects.create(role_name="Parent", status=True)
+        student_credential = CredentialManager.objects.create(role=student_role, username=user.username, status=True)
+        parent_credential = CredentialManager.objects.create(role=parent_role, username=user.username, status=True)
+        UserAccess.objects.create(user_id=student_credential.user_id, menu_id=self.first_menu.menu_id)
+        UserAccess.objects.create(user_id=parent_credential.user_id, menu_id=self.second_menu.menu_id)
+        user._portal_credential = student_credential
+        self.assertEqual(modules_for(user)[0]["sections"][0]["name"], "Profiles")
+        user._portal_credential = parent_credential
+        self.assertEqual(modules_for(user)[0]["sections"][0]["name"], "Admissions")
+
     def test_module_metadata_drives_icons_colors_and_admin_only_visibility(self):
         self.first_module.icon = "graduation-cap"
         self.first_module.color = "blue"
@@ -123,6 +144,13 @@ class DynamicNavigationTests(TestCase):
 
 
 class MasterModelTests(TestCase):
+    def test_boolean_dynamic_form_selects_initial_yes_and_no(self):
+        column = {"name": "Status", "type": "bit", "nullable": False, "generated": False, "primary": False}
+
+        for value, expected in ((True, 'value="1" selected'), (False, 'value="0" selected')):
+            form = dynamic_form([column], {}, ["Status"], initial={"Status": value}, editing=True)
+            self.assertIn(expected, str(form["Status"]))
+
     def test_existing_geographic_mapping_is_backfilled(self):
         mapping = MasterMapping.objects.get(table_key="country")
         self.assertEqual(list(mapping.mapped_tables.values_list("table_name", flat=True)), ["master_country"])
@@ -152,7 +180,7 @@ class MasterPageTests(TestCase):
             schema_editor.create_model(MasterTableMapper)
             if connection.vendor == "sqlite":
                 schema_editor.execute('CREATE TABLE "T_State_Master" ("StateId" integer PRIMARY KEY, "StateName" varchar(100) NOT NULL)')
-                schema_editor.execute('CREATE TABLE "T_City_Master" ("CityId" integer PRIMARY KEY AUTOINCREMENT, "CityName" varchar(100), "StateId" integer REFERENCES "T_State_Master" ("StateId"), "CreatedBy" bigint, "CreatedDt" datetime)')
+                schema_editor.execute('CREATE TABLE "T_City_Master" ("CityId" integer PRIMARY KEY AUTOINCREMENT, "CityName" varchar(100), "StateId" integer REFERENCES "T_State_Master" ("StateId"), "CreatedBy" bigint, "CreatedDt" datetime, "CreatedIP" varchar(45), "Password" varchar(128))')
         super().setUpClass()
 
     def setUp(self):
@@ -477,39 +505,50 @@ class MasterPageTests(TestCase):
         session = self.client.session
         session["credential_user_id"] = 714
         session.save()
+        created_at = timezone.now()
         with connection.cursor() as cursor:
             cursor.execute('INSERT INTO "T_State_Master" ("StateId", "StateName") VALUES (1, %s)', ["Odisha"])
-        selections = {"T_City_Master": ["CityName", "StateId", "CreatedBy", "CreatedDt"]}
+        selections = {"T_City_Master": ["CityName", "StateId", "CreatedBy", "CreatedDt", "CreatedIP", "Password"]}
         response = self.client.post(reverse("master-mappings"), {"name": "External Cities", "table_mode": "single", "table": "T_City_Master", "external_records_enabled": "on", "editable_columns": json.dumps(selections)})
         self.assertEqual(response.status_code, 302)
         mapping = MasterMapping.objects.get(name="External Cities")
         url = reverse("master-records")
         response = self.client.get(url, {"master": mapping.pk})
-        self.assertEqual(list(response.context["form"].fields), ["CityName", "StateId"])
+        self.assertEqual(list(response.context["form"].fields), ["CityName", "StateId", "Password"])
+        self.assertEqual(response.context["form"].fields["Password"].widget.input_type, "password")
         self.assertContains(response, "Odisha")
-        with patch("portal.dynamic_master.timezone.now", return_value=datetime(2026, 11, 15, 6, 0, tzinfo=datetime_timezone.utc)):
-            response = self.client.post(url, {"master": mapping.pk, "table": "T_City_Master", "action": "save", "CityName": "Cuttack", "StateId": "1", "CreatedBy": "999", "CreatedDt": "2000-01-01"})
+        with patch("portal.dynamic_master.timezone.now", return_value=created_at):
+            response = self.client.post(url, {"master": mapping.pk, "table": "T_City_Master", "action": "save", "CityName": "Cuttack", "StateId": "1", "CreatedBy": "999", "CreatedDt": "2000-01-01", "CreatedIP": "203.0.113.99", "Password": "CityPassword#2026"})
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], f"{url}?master={mapping.pk}&table=T_City_Master")
         with connection.cursor() as cursor:
-            cursor.execute('SELECT "CityId", "CityName", "StateId", "CreatedBy", "CreatedDt" FROM "T_City_Master"')
-            city_id, name, state_id, actor, created = cursor.fetchone()
-        self.assertEqual((name, state_id, actor), ("Cuttack", 1, 714))
-        self.assertEqual(str(created), "2026-11-15 11:30:00")
+            cursor.execute('SELECT "CityId", "CityName", "StateId", "CreatedBy", "CreatedDt", "CreatedIP", "Password" FROM "T_City_Master"')
+            city_id, name, state_id, actor, created, created_ip, stored_password = cursor.fetchone()
+        self.assertEqual((name, state_id, actor, created_ip), ("Cuttack", 1, 714, "127.0.0.1"))
+        self.assertEqual(str(created), str(timezone.localtime(created_at).replace(tzinfo=None)))
+        self.assertTrue(check_password("CityPassword#2026", stored_password))
         list_response = self.client.get(url, {"master": mapping.pk, "table": "T_City_Master"})
+        self.assertEqual(list_response.status_code, 200, list_response.content.decode())
         city_record = next(record for record in list_response.context["records"] if str(record["pk"]) == str(city_id))
-        self.assertEqual(city_record["values"][:2], ["Cuttack", "Odisha"])
+        self.assertEqual(city_record["values"], ["Cuttack", "Odisha", "****"])
+        self.assertNotContains(list_response, stored_password)
+        edit_response = self.client.get(url, {"master": mapping.pk, "table": "T_City_Master", "edit": city_id})
+        self.assertTrue(edit_response.context["form"].fields["Password"].disabled)
+        self.assertEqual(edit_response.context["form"]["Password"].value(), "****")
         response = self.client.post(url, {"master": mapping.pk, "table": "T_City_Master", "action": "save", "edit": city_id, "CityName": "Changed", "StateId": "999"})
         self.assertContains(response, "Select a valid choice")
         with connection.cursor() as cursor:
             cursor.execute('SELECT "CityName" FROM "T_City_Master" WHERE "CityId" = %s', [city_id])
             self.assertEqual(cursor.fetchone()[0], "Cuttack")
-        with patch("portal.dynamic_master.timezone.now", return_value=datetime(2026, 11, 15, 7, 0, tzinfo=datetime_timezone.utc)):
+        updated_at = created_at + timedelta(minutes=1)
+        with patch("portal.dynamic_master.timezone.now", return_value=updated_at):
             response = self.client.post(url, {"master": mapping.pk, "table": "T_City_Master", "action": "save", "edit": city_id, "CityName": "Updated", "StateId": "1", "CreatedBy": "999"})
         self.assertEqual(response.status_code, 302)
         with connection.cursor() as cursor:
-            cursor.execute('SELECT "CityName", "CreatedBy", "CreatedDt" FROM "T_City_Master" WHERE "CityId" = %s', [city_id])
-            name, actor, created = cursor.fetchone()
-        self.assertEqual((name, actor, str(created)), ("Updated", 714, "2026-11-15 12:30:00"))
+            cursor.execute('SELECT "CityName", "CreatedBy", "CreatedDt", "CreatedIP", "Password" FROM "T_City_Master" WHERE "CityId" = %s', [city_id])
+            name, actor, created, created_ip, updated_password = cursor.fetchone()
+        self.assertEqual((name, actor, str(created), created_ip), ("Updated", 714, str(timezone.localtime(updated_at).replace(tzinfo=None)), "127.0.0.1"))
+        self.assertEqual(updated_password, stored_password)
 
     def test_builtin_country_spreadsheet_import(self):
         self.client.force_login(self.admin)
@@ -530,7 +569,7 @@ class MasterPageTests(TestCase):
         session.save()
         with connection.cursor() as cursor:
             cursor.execute('INSERT INTO "T_State_Master" ("StateId", "StateName") VALUES (1, %s)', ["Odisha"])
-        selections = {"T_City_Master": ["CityName", "StateId", "CreatedBy", "CreatedDt"]}
+        selections = {"T_City_Master": ["CityName", "StateId", "CreatedBy", "CreatedDt", "CreatedIP", "Password"]}
         self.client.post(reverse("master-mappings"), {"name": "External Cities", "table_mode": "single", "table": "T_City_Master", "external_records_enabled": "on", "editable_columns": json.dumps(selections)})
         mapping = MasterMapping.objects.get(name="External Cities")
 
@@ -543,26 +582,27 @@ class MasterPageTests(TestCase):
             return SimpleUploadedFile("cities.xlsx", stream.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         url = reverse("master-records")
-        data = {"master": mapping.pk, "table": "T_City_Master", "action": "upload", "file": spreadsheet([["CityName", "StateId"], ["Cuttack", 1], ["Bad", 999]])}
+        data = {"master": mapping.pk, "table": "T_City_Master", "action": "upload", "file": spreadsheet([["CityName", "StateId", "Password"], ["Cuttack", 1, "FirstPassword#2026"], ["Bad", 999, "SecondPassword#2026"]])}
         response = self.client.post(url, data)
         self.assertContains(response, "Row 3")
         with connection.cursor() as cursor:
             cursor.execute('SELECT COUNT(*) FROM "T_City_Master"')
             self.assertEqual(cursor.fetchone()[0], 0)
-        data["file"] = spreadsheet([["CityName", "StateId"], ["Cuttack", 1]])
+        data["file"] = spreadsheet([["CityName", "StateId", "Password"], ["Cuttack", 1, "CityPassword#2026"]])
         response = self.client.post(url, data)
         self.assertEqual(response.status_code, 302)
         with connection.cursor() as cursor:
-            cursor.execute('SELECT "CityId", "CityName", "CreatedBy" FROM "T_City_Master"')
-            city_id, name, actor = cursor.fetchone()
-        self.assertEqual((name, actor), ("Cuttack", 714))
-        data["file"] = spreadsheet([["CityId", "CityName", "StateId"], [city_id, "Updated", 1]])
+            cursor.execute('SELECT "CityId", "CityName", "CreatedBy", "CreatedIP", "Password" FROM "T_City_Master"')
+            city_id, name, actor, created_ip, stored_password = cursor.fetchone()
+        self.assertEqual((name, actor, created_ip), ("Cuttack", 714, "127.0.0.1"))
+        self.assertTrue(check_password("CityPassword#2026", stored_password))
+        data["file"] = spreadsheet([["CityId", "CityName", "StateId", "Password"], [city_id, "Updated", 1, "ReplacementPassword#2026"]])
         response = self.client.post(url, data)
         self.assertEqual(response.status_code, 302)
         with connection.cursor() as cursor:
-            cursor.execute('SELECT "CityName" FROM "T_City_Master" WHERE "CityId" = %s', [city_id])
-            self.assertEqual(cursor.fetchone()[0], "Updated")
-        data["file"] = spreadsheet([["CityName", "StateId"], ["=1+1", 1]])
+            cursor.execute('SELECT "CityName", "Password" FROM "T_City_Master" WHERE "CityId" = %s', [city_id])
+            self.assertEqual(cursor.fetchone(), ("Updated", stored_password))
+        data["file"] = spreadsheet([["CityName", "StateId", "Password"], ["=1+1", 1, "FormulaPassword#2026"]])
         self.assertContains(self.client.post(url, data), "formulas are not supported")
 
     def test_external_and_builtin_tables_can_share_a_mapping(self):
@@ -674,6 +714,7 @@ class AccessControlTests(TestCase):
     def setUpClass(cls):
         with connection.schema_editor() as schema_editor:
             schema_editor.create_model(UserRoleMaster)
+            schema_editor.create_model(CredentialManager)
             schema_editor.create_model(ModuleMaster)
             schema_editor.create_model(RoleModuleMapping)
         super().setUpClass()
@@ -684,6 +725,7 @@ class AccessControlTests(TestCase):
         with connection.schema_editor() as schema_editor:
             schema_editor.delete_model(RoleModuleMapping)
             schema_editor.delete_model(ModuleMaster)
+            schema_editor.delete_model(CredentialManager)
             schema_editor.delete_model(UserRoleMaster)
 
     def setUp(self):
@@ -692,6 +734,7 @@ class AccessControlTests(TestCase):
         self.role = Group.objects.get(name="Student")
         self.student.groups.add(self.role)
         UserRoleMaster.objects.all().delete()
+        CredentialManager.objects.all().delete()
         RoleModuleMapping.objects.all().delete()
         self.super_admin_role = UserRoleMaster.objects.create(role_name="Super Admin", status=True)
         self.student_role = UserRoleMaster.objects.create(role_name="Student", status=True)
@@ -739,7 +782,7 @@ class AccessControlTests(TestCase):
         self.assertEqual(self.client.get(reverse("master-mappings")).status_code, 200)
         self.assertEqual(self.client.get(reverse("access-control", args=["user-menu-access"])).status_code, 200)
 
-    def test_admin_can_manage_role_modules_and_user_menu_access(self):
+    def test_admin_can_manage_role_modules(self):
         self.client.force_login(self.admin)
         response = self.client.post(reverse("access-control", args=["role-module-mapping"]), {"target": self.student_role.pk, "modules": [self.module.pk]})
         self.assertEqual(response.status_code, 302)
@@ -747,11 +790,8 @@ class AccessControlTests(TestCase):
         self.assertEqual(module_mapping.module_id, self.module.pk)
         self.assertIsNotNone(module_mapping.mapped_at)
         self.assertEqual(module_mapping.mapped_ip, "127.0.0.1")
-        self.menu.roles.add(self.role)
-        response = self.client.post(reverse("access-control", args=["user-menu-access"]), {"target": self.student.pk, "submenus": [self.records.pk]})
-        self.assertEqual(response.status_code, 302)
         self.client.force_login(self.student)
-        self.assertEqual(self.client.get(reverse("master-records")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("master-records")).status_code, 403)
         self.assertEqual(self.client.get(reverse("master-mappings")).status_code, 403)
         self.assertEqual(self.client.get(reverse("access-control", args=["user-menu-access"])).status_code, 403)
 
@@ -789,7 +829,7 @@ class AccessControlTests(TestCase):
             {self.other_module.pk},
         )
 
-    def test_user_roles_page_is_removed_and_admin_only_submenus_cannot_be_assigned(self):
+    def test_user_roles_page_is_removed_and_access_tabs_remain_available(self):
         group_admin = User.objects.create_user(username="group-admin", password="test-password-123")
         group_admin.groups.add(Group.objects.get(name="Admin"))
         self.client.force_login(group_admin)
@@ -798,10 +838,7 @@ class AccessControlTests(TestCase):
         self.assertContains(response, "Role - Module Mapping")
         self.assertContains(response, "User - Menu Access")
         self.assertNotContains(response, "User roles")
-        protected = SubMenu.objects.get(menu__slug="access-control", slug="role-module-mapping")
-        response = self.client.post(reverse("access-control", args=["user-menu-access"]), {"target": self.student.pk, "submenus": [protected.pk]})
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(protected.users.filter(pk=self.student.pk).exists())
+        self.assertEqual(self.client.get(reverse("access-control", args=["user-menu-access"])).status_code, 200)
 
     def test_menu_names_and_submenus_come_from_database(self):
         self.menu.name = "Reference Data"
@@ -814,6 +851,71 @@ class AccessControlTests(TestCase):
         self.assertContains(response, "Reference Data")
         self.assertContains(response, "Master records")
         self.assertNotContains(response, "Table mappings")
+
+
+class UserMenuAccessExternalTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(UserRoleMaster)
+            schema_editor.create_model(CredentialManager)
+            schema_editor.create_model(ModuleMaster)
+            schema_editor.create_model(MenuMaster)
+            schema_editor.create_model(UserAccess)
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        with connection.schema_editor() as schema_editor:
+            schema_editor.delete_model(UserAccess)
+            schema_editor.delete_model(MenuMaster)
+            schema_editor.delete_model(ModuleMaster)
+            schema_editor.delete_model(CredentialManager)
+            schema_editor.delete_model(UserRoleMaster)
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(username="menu-access-admin", password="test-password-123")
+        self.role = UserRoleMaster.objects.create(role_name="Student", status=True)
+        self.other_role = UserRoleMaster.objects.create(role_name="Teacher", status=True)
+        UserRoleMaster.objects.create(role_name="Super Admin", status=True)
+        self.credential = CredentialManager.objects.create(role=self.role, username="selected-student", status=True)
+        CredentialManager.objects.create(role=self.other_role, username="teacher-user", status=True)
+        self.later_module = ModuleMaster.objects.create(module_name="Later module", sequence=20)
+        self.first_module = ModuleMaster.objects.create(module_name="First module", sequence=10)
+        self.first_menu = MenuMaster.objects.create(module_id=self.first_module.module_id, menu_name="First menu", sequence=10)
+        self.second_menu = MenuMaster.objects.create(module_id=self.first_module.module_id, menu_name="Second menu", sequence=20)
+        ModuleMaster.objects.create(module_name="Admin module", sequence=30, admin_only=True)
+        self.client.force_login(self.admin)
+
+    def test_role_user_and_ordered_module_menu_access_uses_external_tables(self):
+        url = reverse("access-control", args=["user-menu-access"])
+        response = self.client.get(url, {"role": self.role.role_id})
+
+        self.assertContains(response, "Student")
+        self.assertContains(response, f'<option value="{self.credential.user_id}"')
+        self.assertContains(response, ">selected-student</option>")
+        self.assertNotContains(response, f"ID {self.credential.user_id} |")
+        self.assertNotContains(response, "Super Admin")
+        self.assertNotContains(response, "teacher-user")
+        self.assertEqual(
+            [group["module"].module_name for group in response.context["module_groups"]],
+            ["First module", "Later module", "Admin module"],
+        )
+        self.assertContains(response, "First menu")
+        self.assertContains(response, "Second menu")
+
+        response = self.client.post(url, {
+            "role": self.role.role_id,
+            "target": self.credential.user_id,
+            "menus": [self.second_menu.menu_id],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            list(UserAccess.objects.filter(user_id=self.credential.user_id).values_list("menu_id", flat=True)),
+            [self.second_menu.menu_id],
+        )
 
 
 class CredentialManagerPageTests(TestCase):
@@ -944,6 +1046,14 @@ class PortalTests(TestCase):
             schema_editor.create_model(LoginUserHistory)
         super().setUpClass()
 
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        with connection.schema_editor() as schema_editor:
+            schema_editor.delete_model(LoginUserHistory)
+            schema_editor.delete_model(CredentialManager)
+            schema_editor.delete_model(UserRoleMaster)
+
     def setUp(self):
         LoginUserHistory.objects.all().delete()
         CredentialManager.objects.all().delete()
@@ -982,6 +1092,23 @@ class PortalTests(TestCase):
         self.client.force_login(self.admin)
         self.assertContains(self.client.get(reverse("dashboard")), 'aria-label="Color theme"')
 
+    @override_settings(SESSION_COOKIE_AGE=1200)
+    def test_idle_timer_and_session_renewal(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'data-idle-seconds="1200"')
+        self.assertContains(response, 'data-logout-form')
+        session_key = self.client.session.session_key
+        Session.objects.filter(session_key=session_key).update(expire_date=timezone.now() + timedelta(seconds=60))
+        self.assertEqual(self.client.post(reverse("renew-session")).json(), {"expires_in": 1200})
+        self.assertGreater(Session.objects.get(session_key=session_key).expire_date, timezone.now() + timedelta(seconds=1100))
+        self.assertEqual(self.client.get(reverse("renew-session")).status_code, 405)
+
+    def test_session_renewal_does_not_restore_expired_session(self):
+        self.client.force_login(self.admin)
+        Session.objects.filter(session_key=self.client.session.session_key).update(expire_date=timezone.now())
+        self.assertEqual(self.client.post(reverse("renew-session")).status_code, 401)
+
     def test_login_requires_an_assigned_role(self):
         response = self.client.post(reverse("login"), {"username": "student", "password": "test-password-123", "role": str(self.role_ids["Admin"])})
         self.assertContains(response, "Username, password, or role is incorrect.")
@@ -991,6 +1118,16 @@ class PortalTests(TestCase):
         self.assertRedirects(response, reverse("dashboard"))
         self.student_credential.refresh_from_db()
         self.assertTrue(check_password("test-password-123", self.student_credential.password))
+
+    def test_shared_username_sessions_keep_their_selected_roles(self):
+        CredentialManager.objects.create(
+            role_id=self.role_ids["Parent"], username="student", password=make_password("test-password-123"), status=True,
+        )
+        parent_client = Client()
+        self.client.post(reverse("login"), {"username": "student", "password": "test-password-123", "role": str(self.role_ids["Student"])})
+        parent_client.post(reverse("login"), {"username": "student", "password": "test-password-123", "role": str(self.role_ids["Parent"])})
+        self.assertEqual(self.client.get(reverse("api-me")).json()["roles"], ["Student"])
+        self.assertEqual(parent_client.get(reverse("api-me")).json()["roles"], ["Parent"])
 
     def test_login_rejects_wrong_password_and_inactive_credential(self):
         response = self.client.post(reverse("login"), {"username": "student", "password": "wrong-password", "role": str(self.role_ids["Student"])})

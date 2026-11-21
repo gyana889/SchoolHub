@@ -1,0 +1,81 @@
+.enrollment-heading{align-items:end}
+.enrollment-new-button{gap:10px;padding:12px 16px;font-size:12px}
+.enrollment-new-button svg{width:16px;height:16px}
+.enrollment-register{overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:5px}
+.enrollment-register-toolbar{display:flex;align-items:end;justify-content:space-between;gap:20px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.enrollment-search{width:min(440px,100%)}
+.enrollment-search>label{display:block;margin-bottom:8px;color:#91a096;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.enrollment-search>div{display:flex;align-items:center;gap:8px}
+.enrollment-search>div>svg{width:16px;height:16px;margin-right:-32px;margin-left:12px;color:#93a198;z-index:1}
+.enrollment-search input{width:100%;height:40px;padding:0 12px 0 36px;border:1px solid #dfe7df;border-radius:4px;color:var(--ink);outline:none}
+.enrollment-search input:focus{border-color:var(--theme-focus);box-shadow:0 0 0 3px var(--theme-ring)}
+.enrollment-search .outline-button{height:40px}
+.enrollment-register-toolbar .record-count{padding-bottom:12px}
+.enrollment-table{min-width:740px}
+.enrollment-table th{white-space:nowrap}
+.enrollment-student{font-weight:700;color:var(--ink)}
+.enrollment-status{display:inline-flex;align-items:center;padding:5px 8px;border-radius:3px;background:var(--theme-menu);color:var(--theme-accent);font-size:10px;font-weight:700;white-space:nowrap}
+.enrollment-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 20px;border-top:1px solid var(--line);color:#829187;font-size:11px}
+.enrollment-pagination>div{display:flex;align-items:center;gap:18px}
+.enrollment-pagination a{display:inline-flex;align-items:center;gap:4px;color:var(--theme-accent);font-weight:700}
+.enrollment-pagination svg{width:14px;height:14px}
+.enrollment-back-link{margin-bottom:20px}
+.student-sibling-lookup{margin-top:8px;min-height:36px}
+.student-sibling-lookup svg{width:16px;height:16px}
+.enrollment-field[hidden]{display:none}
+.enrollment-workflow{max-width:1060px;margin:0 auto}
+.enrollment-progress{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin:0 0 22px;padding:0;list-style:none}
+.student-registration-progress{grid-template-columns:repeat(5,minmax(0,1fr))}
+.enrollment-progress-step{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0;text-align:center;color:#97a39a;font-size:10px}
+.enrollment-progress-step::before{position:absolute;top:15px;left:-50%;width:100%;height:1px;background:#dfe7df;content:""}
+.enrollment-progress-step:first-child::before{display:none}
+.enrollment-progress-step>span{position:relative;z-index:1;display:grid;place-items:center;width:31px;height:31px;border:1px solid #dfe7df;border-radius:50%;background:#fff;font-size:10px;font-weight:700}
+.enrollment-progress-step strong{max-width:130px;font-size:10px;font-weight:600;line-height:1.35}
+.enrollment-progress-step.is-active{color:var(--theme-accent)}
+.enrollment-progress-step.is-active>span{border-color:var(--theme-primary);background:var(--theme-primary);color:#fff}
+.enrollment-progress-step.is-complete>span{border-color:var(--theme-primary);background:var(--theme-menu);color:var(--theme-accent)}
+.enrollment-panel{overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:5px}
+.enrollment-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 26px;border-bottom:1px solid var(--line)}
+.enrollment-panel-heading h2{margin:8px 0 5px;font:700 20px/1.3 'Manrope',sans-serif;color:var(--ink)}
+.enrollment-panel-heading p{margin:0;color:#829187;font-size:12px;line-height:1.6}
+.enrollment-panel-heading p strong{color:#c14e3e}
+.enrollment-panel-heading>svg{width:22px;height:22px;color:var(--theme-accent)}
+.enrollment-panel-count{color:#96a399;font-size:10px;font-weight:700;white-space:nowrap}
+.enrollment-form{padding:0 26px 22px}
+.enrollment-field-group{margin:0;padding:20px 0;border:0;border-bottom:1px solid #edf1ec}
+.enrollment-field-group:last-of-type{border-bottom:0}
+.enrollment-field-group legend{padding:0 0 14px;color:#829187;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+.enrollment-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 20px}
+.enrollment-field{display:flex;flex-direction:column;gap:7px;min-width:0}
+.enrollment-field-wide{grid-column:1/-1}
+.enrollment-field>label{color:#53675b;font-size:11px;font-weight:700;line-height:1.4}
+.enrollment-field input:not([type=checkbox]),.enrollment-field select,.enrollment-field textarea{width:100%;min-width:0;min-height:40px;padding:9px 11px;border:1px solid #dfe7df;border-radius:4px;background:#fff;color:var(--ink);font:inherit;font-size:12px;outline:none}
+.enrollment-field textarea{min-height:92px;resize:vertical;line-height:1.5}
+.enrollment-field input:focus,.enrollment-field select:focus,.enrollment-field textarea:focus,.enrollment-school-table input:focus{border-color:var(--theme-focus);box-shadow:0 0 0 3px var(--theme-ring)}
+.enrollment-field input[type=checkbox]{width:17px;height:17px;margin:0;accent-color:var(--theme-primary)}
+.enrollment-checkbox{display:flex;align-items:center;gap:9px;min-height:40px;color:var(--theme-accent)!important;cursor:pointer}
+.required-mark{margin-left:3px;color:#bf4b3b}
+.enrollment-error,.enrollment-form .errorlist{margin:0;color:#a84132;font-size:11px;line-height:1.5}
+.enrollment-form .errorlist{padding-left:18px}
+.enrollment-school-table-wrap{overflow-x:auto;padding-top:20px}
+.enrollment-school-table{width:100%;min-width:720px;border-collapse:collapse}
+.enrollment-school-table th,.enrollment-school-table td{padding:9px 8px;border-bottom:1px solid #edf1ec;text-align:left;vertical-align:top}
+.enrollment-school-table thead th{color:#829187;font-size:9px;letter-spacing:.7px;text-transform:uppercase}
+.enrollment-school-table tbody th{width:35px;color:#829187;font-size:11px;font-weight:600}
+.enrollment-school-table input{width:100%;min-width:80px;height:38px;padding:7px 9px;border:1px solid #dfe7df;border-radius:4px;color:var(--ink);font:inherit;font-size:12px;outline:none}
+.enrollment-school-table td:nth-child(2),.enrollment-school-table td:nth-child(3){width:105px}
+.enrollment-note{margin:12px 0 0;color:#829187;font-size:11px;line-height:1.6}
+.enrollment-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding-top:18px;border-top:1px solid var(--line)}
+.enrollment-actions .button{gap:12px;padding:12px 16px;font-size:11px}
+.enrollment-actions .button svg{width:15px;height:15px}
+.enrollment-actions .outline-button{min-height:42px}
+.enrollment-review-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;padding:10px 26px 22px}
+.enrollment-review-list>div{padding:13px 0;border-bottom:1px solid #edf1ec}
+.enrollment-review-list dt{margin-bottom:5px;color:#829187;font-size:10px;font-weight:600}
+.enrollment-review-list dd{margin:0;color:var(--ink);font-size:13px;font-weight:700;overflow-wrap:anywhere}
+.enrollment-panel>.enrollment-actions{padding:16px 26px 22px}
+.student-edit-workflow{padding:0}.student-edit-context{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 20px;border-bottom:1px solid var(--line)}.student-edit-context>div{display:flex;flex-direction:column;gap:5px}.student-edit-context strong{font:700 16px/1.3 'Manrope',sans-serif;color:var(--ink)}.student-edit-context dl{margin:0}.student-edit-context dl div{display:flex;flex-direction:column;gap:3px;text-align:right}.student-edit-context dt{color:#829187;font-size:9px;font-weight:700;text-transform:uppercase}.student-edit-context dd{margin:0;font-size:13px;font-weight:800;color:var(--theme-accent)}.student-edit-selector{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px}.student-edit-selector section{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:2px 8px;min-width:0;padding:10px 12px;border:1px solid #edf1ec;border-radius:4px}.student-edit-selector h3{grid-column:1/-1;margin:0 0 5px;font-size:11px;color:var(--ink)}.student-edit-selector .enrollment-checkbox{min-height:30px!important;padding:2px 3px;color:#53675b!important;font-size:10px}.student-edit-selector .enrollment-checkbox span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.student-edit-workflow .enrollment-form{padding-top:0}.student-edit-workflow .enrollment-panel{margin:20px;border:1px solid var(--line)}
+@media(max-width:1050px){.student-edit-selector{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:850px){.enrollment-progress-step strong{max-width:90px;font-size:9px}.enrollment-panel-heading,.enrollment-form{padding-right:20px;padding-left:20px}}
+@media(max-width:600px){.student-edit-context{align-items:flex-start;padding:16px}.student-edit-selector{grid-template-columns:minmax(0,1fr)}.student-edit-selector section{grid-template-columns:minmax(0,1fr)}.student-edit-workflow .enrollment-panel{margin:14px}.student-edit-context dl div{text-align:left}
+.enrollment-heading{align-items:flex-start}.enrollment-heading h1{font-size:25px}.enrollment-register-toolbar{align-items:stretch;flex-direction:column;padding:16px}.enrollment-search{width:100%}.enrollment-register-toolbar .record-count{padding:0}.enrollment-progress{grid-template-columns:repeat(3,minmax(0,1fr));gap:13px 0}.enrollment-progress-step::before{display:none}.enrollment-progress-step strong{max-width:100px}.enrollment-panel-heading{padding:18px}.enrollment-panel-heading h2{font-size:18px}.enrollment-form{padding:0 18px 18px}.enrollment-field-group{padding:17px 0}.enrollment-fields{grid-template-columns:minmax(0,1fr);gap:13px}.enrollment-field-wide{grid-column:auto}.enrollment-actions{flex-wrap:wrap;justify-content:space-between}.enrollment-actions .button{margin-left:auto}.enrollment-review-list{grid-template-columns:minmax(0,1fr);padding:4px 18px 18px}.enrollment-panel>.enrollment-actions{padding:14px 18px 18px}.enrollment-pagination{padding:13px 15px}.enrollment-pagination>div{gap:10px}}

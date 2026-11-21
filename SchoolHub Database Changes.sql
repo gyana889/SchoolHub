@@ -223,4 +223,11 @@ select * from T_Country_Master
 
 select * from INFORMATION_SCHEMA.COLUMNS where TABLE_NAME = 'T_Country_Master'
 
+select * from V_Students order by ScholarNo desc
 
+select * from T_Student_Update_Details
+
+--changes: 
+
+--1. During student registration, it should also allow to add blood group, PEN No., Adhar No.
+--2. As there are more than 50 fields to edit, so I don't want to show all the fields in editable mode, when they only need few fields to edit. So there should be a dynamic edit option where user can select which field they want to edit and my edit page should only show those fields. Scholar no and Name should appear in every edit field to identify the student.

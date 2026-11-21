@@ -1,0 +1,100 @@
+{% extends 'portal/app_base.html' %}
+{% load static %}
+{% block title %}Student Registration | SchoolHub{% endblock %}
+{% block breadcrumb %}Students / Student Registration{% endblock %}
+{% block app_content %}
+<div class="master-heading enrollment-heading">
+    <div><div class="section-label"><span class="label-dot"></span> STUDENTS</div><h1>Student Registration<span class="heading-period">.</span></h1></div>
+    {% if view_mode != 'list' %}<a class="outline-button" href="{% url 'student-registration' %}?mode=list"><i data-lucide="list"></i> Registrations</a>{% else %}<a class="button button-dark enrollment-new-button" href="{% url 'student-registration-new' %}"><i data-lucide="plus"></i> New registration</a>{% endif %}
+</div>
+{% for message in messages %}<div class="master-message {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}
+{% if view_mode == 'list' %}
+<section class="enrollment-register">
+    <div class="enrollment-register-toolbar">
+        <form method="get" class="enrollment-search">
+            <input type="hidden" name="mode" value="list">
+            <label for="registration-search">Search registrations</label>
+            <div><i data-lucide="search"></i><input id="registration-search" type="search" name="q" value="{{ search }}" placeholder="Name, scholar number or registration number"><button class="outline-button" type="submit">Search</button></div>
+        </form>
+        <span class="record-count">{{ results.total }} REGISTRATION{{ results.total|pluralize|upper }}</span>
+    </div>
+    <div class="table-scroll">
+        <table class="data-table enrollment-table">
+            <thead><tr><th>STUDENT</th><th>SCHOLAR NO.</th><th>REGISTRATION NO.</th><th>CLASS</th><th>STATUS</th><th class="actions-heading">ACTIONS</th></tr></thead>
+            <tbody>
+                {% for row in results.rows %}
+                <tr><td class="enrollment-student">{{ row.full_name|default:'Unnamed student' }}</td><td class="table-code">{{ row.scholar_number|default:'-' }}</td><td class="table-code">{{ row.registration_number|default:'-' }}</td><td>{{ row.class_id|default:'-' }}</td><td><span class="enrollment-status">{{ row.status|default:'Active' }}</span></td><td class="actions-cell"><div class="row-actions"><a href="{% url 'student-registration-edit' row.student_id %}" class="icon-action" title="Edit registration" aria-label="Edit registration {{ row.full_name }}"><i data-lucide="pencil"></i></a></div></td></tr>
+                {% empty %}
+                <tr><td colspan="6" class="table-empty"><i data-lucide="inbox"></i><strong>No student registrations found</strong><span>{% if search %}Try a different search term.{% else %}Create a new registration to get started.{% endif %}</span></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if results.page_count > 1 %}
+    <nav class="enrollment-pagination" aria-label="Student registration pages">
+        <span>Page {{ results.page }} of {{ results.page_count }}</span>
+        <div>{% if results.page > 1 %}<a href="?mode=list&amp;q={{ search|urlencode }}&amp;page={{ results.page|add:'-1' }}"><i data-lucide="chevron-left"></i> Previous</a>{% endif %}{% if results.page < results.page_count %}<a href="?mode=list&amp;q={{ search|urlencode }}&amp;page={{ results.page|add:'1' }}">Next <i data-lucide="chevron-right"></i></a>{% endif %}</div>
+    </nav>
+    {% endif %}
+</section>
+{% elif view_mode == 'edit' %}
+<section class="enrollment-register student-edit-workflow">
+    <div class="student-edit-context"><div><span class="section-label">EDIT REGISTRATION</span><strong>{{ student_name|default:'Unnamed student' }}</strong></div><dl><div><dt>Scholar number</dt><dd>{{ scholar_number|default:'-' }}</dd></div></dl></div>
+    {% if edit_stage == 'selector' %}
+    <form method="post" class="enrollment-form">
+        {% csrf_token %}<input type="hidden" name="edit_stage" value="selector">
+        <fieldset class="enrollment-field-group"><legend>Select fields to edit</legend>
+        <div class="student-edit-selector">
+            {% for key, group in edit_groups.items %}<section><h3>{{ group.0 }}</h3>{% for name in group.1 %}<label class="enrollment-checkbox"><input type="checkbox" name="selected_fields" value="{{ name }}" {% if name in selected_fields %}checked{% endif %}><span>{{ name|cut:'_'|title }}</span></label>{% endfor %}</section>{% endfor %}
+        </div></fieldset>
+        <div class="enrollment-actions"><button class="outline-button" type="submit" name="action" value="cancel">Cancel</button><button class="button button-dark" type="submit" name="action" value="continue">Continue <i data-lucide="arrow-right"></i></button></div>
+    </form>
+    {% elif edit_stage == 'fields' %}
+    <form method="post" class="enrollment-form" novalidate data-sibling-url="{% url 'student-sibling-lookup' %}">
+        {% csrf_token %}<input type="hidden" name="edit_stage" value="fields">{{ edit_form.non_field_errors }}
+        <fieldset class="enrollment-field-group"><legend>Edit selected fields</legend><div class="enrollment-fields">
+        {% for field in edit_form %}<div class="enrollment-field {% if field.field.widget.input_type == 'textarea' or field.name == 'activities' %}enrollment-field-wide{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark">*</span>{% endif %}</label>{{ field }}{% for error in field.errors %}<span class="enrollment-error" role="alert">{{ error }}</span>{% endfor %}</div>{% endfor %}
+        </div></fieldset>
+        <div class="enrollment-actions"><button class="outline-button" type="submit" name="action" value="cancel">Cancel</button><button class="outline-button" type="submit" name="action" value="back"><i data-lucide="arrow-left"></i> Back</button><button class="button button-dark" type="submit" name="action" value="review">Review changes <i data-lucide="arrow-right"></i></button></div>
+    </form>
+    {% elif edit_stage == 'review' %}
+    <section class="enrollment-panel">
+        <div class="enrollment-panel-heading"><div><span class="section-label">FINAL REVIEW</span><h2>Confirm changes</h2></div><i data-lucide="clipboard-check"></i></div>
+        <fieldset class="enrollment-field-group"><legend>Changes</legend><div class="table-scroll"><table class="data-table"><thead><tr><th>FIELD</th><th>ORIGINAL</th><th>NEW VALUE</th></tr></thead><tbody>{% for label, original, changed in edit_review %}<tr><td>{{ label }}</td><td>{{ original|default:'-' }}</td><td><strong>{{ changed|default:'-' }}</strong></td></tr>{% endfor %}</tbody></table></div></fieldset>
+        <form method="post" class="enrollment-actions">{% csrf_token %}<input type="hidden" name="edit_stage" value="review"><button class="outline-button" type="submit" name="action" value="cancel">Cancel</button><button class="outline-button" type="submit" name="action" value="back"><i data-lucide="arrow-left"></i> Back</button><button class="button button-dark" type="submit" name="action" value="confirm">Confirm changes <i data-lucide="check"></i></button></form>
+    </section>
+    {% endif %}
+</section>
+{% else %}
+<div class="enrollment-workflow">
+    <nav class="enrollment-progress student-registration-progress" aria-label="Registration steps">
+        {% for stage in stages %}<div class="enrollment-progress-step {% if step == forloop.counter %}is-active{% elif step > forloop.counter %}is-complete{% endif %}" {% if step == forloop.counter %}aria-current="step"{% endif %}><span>{{ forloop.counter|stringformat:'02d' }}</span><strong>{{ stage }}</strong></div>{% endfor %}
+    </nav>
+    <section class="enrollment-panel">
+        {% if step == 6 %}
+        <div class="enrollment-panel-heading"><div><span class="section-label">FINAL REVIEW</span><h2>Confirm registration</h2></div><i data-lucide="clipboard-check"></i></div>
+        {% for title, entries in review %}<fieldset class="enrollment-field-group"><legend>{{ title }}</legend><dl class="enrollment-review-list">{% for label, value in entries %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl></fieldset>{% endfor %}
+        <form method="post" class="enrollment-actions">{% csrf_token %}<input type="hidden" name="step" value="6"><button class="outline-button" type="submit" name="action" value="previous"><i data-lucide="arrow-left"></i> Back</button><button class="button button-dark" type="submit" name="action" value="confirm">Confirm registration <i data-lucide="check"></i></button></form>
+        {% else %}
+        <div class="enrollment-panel-heading"><div><span class="section-label">STEP {{ step|stringformat:'02d' }} OF 05</span><h2>{{ stages|slice:step|last }}</h2></div><span class="enrollment-panel-count">{{ step|stringformat:'02d' }} / 05</span></div>
+        <form method="post" class="enrollment-form" novalidate data-sibling-url="{% url 'student-sibling-lookup' %}">
+            {% csrf_token %}<input type="hidden" name="step" value="{{ step }}">
+            {{ form.non_field_errors }}
+            {% for group in field_groups %}<fieldset class="enrollment-field-group"><legend>{{ group.title }}</legend><div class="enrollment-fields">
+            {% for field in group.fields %}
+                <div class="enrollment-field {% if field.name == 'same_address' or field.field.widget.input_type == 'textarea' or field.name == 'activities' %}enrollment-field-wide{% endif %}" data-field="{{ field.name }}">
+                    {% if field.field.widget.input_type == 'checkbox' %}<label class="enrollment-checkbox" for="{{ field.id_for_label }}">{{ field }}<span>{{ field.label }}</span></label>{% else %}<label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark">*</span>{% endif %}</label>{{ field }}{% endif %}
+                    {% if step == 3 and 'scholar_' in field.name %}<button class="outline-button student-sibling-lookup" type="button" title="Find sibling" aria-label="Find sibling"><i data-lucide="search"></i></button><span class="enrollment-error" role="status"></span>{% endif %}
+                    {% for error in field.errors %}<span class="enrollment-error" role="alert">{{ error }}</span>{% endfor %}
+                </div>
+            {% endfor %}
+            </div></fieldset>{% endfor %}
+            {% if step == 4 %}<button class="outline-button" type="submit" name="action" value="refresh">Update sections</button>{% endif %}
+            <div class="enrollment-actions"><button class="outline-button" type="submit" name="action" value="cancel">Cancel</button>{% if step > 1 %}<button class="outline-button" type="submit" name="action" value="previous"><i data-lucide="arrow-left"></i> Back</button>{% endif %}<button class="button button-dark" type="submit" name="action" value="next">{% if step == 5 %}Review registration{% else %}Continue{% endif %} <i data-lucide="arrow-right"></i></button></div>
+        </form>
+        {% endif %}
+    </section>
+</div>
+{% endif %}
+<script src="{% static 'portal/js/student_registration.js' %}" defer></script>
+{% endblock %}

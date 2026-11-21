@@ -1,5 +1,77 @@
 document.addEventListener('DOMContentLoaded', () => {
     if (window.lucide) window.lucide.createIcons();
+    const idleTimer = document.querySelector('[data-idle-timer]');
+    const logoutForm = document.querySelector('[data-logout-form]');
+    if (idleTimer && logoutForm) {
+        const idleTime = idleTimer.querySelector('[data-idle-time]');
+        const storageKey = `schoolhub-idle:${idleTimer.dataset.sessionScope}`;
+        const duration = Number(idleTimer.dataset.idleSeconds) * 1000;
+        let deadline = Date.now() + duration;
+        let lastRenewal = Date.now();
+        let renewing = false;
+        let renewalTimer = null;
+        let signingOut = false;
+        const shareDeadline = () => {
+            try { localStorage.setItem(storageKey, String(deadline)); } catch (error) {}
+        };
+        const syncDeadline = () => {
+            try { deadline = Math.max(deadline, Number(localStorage.getItem(storageKey)) || 0); } catch (error) {}
+        };
+        const updateTimer = () => {
+            syncDeadline();
+            const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+            idleTime.textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
+            if (!remaining && !signingOut) {
+                signingOut = true;
+                logoutForm.submit();
+            }
+        };
+        shareDeadline();
+        updateTimer();
+        window.setInterval(updateTimer, 1000);
+        window.addEventListener('storage', (event) => {
+            if (event.key === storageKey) updateTimer();
+        });
+        document.addEventListener('visibilitychange', updateTimer);
+        const renewSession = async () => {
+            if (signingOut || renewing) return;
+            const delay = 30000 - (Date.now() - lastRenewal);
+            if (delay > 0) {
+                if (!renewalTimer) renewalTimer = window.setTimeout(() => {
+                    renewalTimer = null;
+                    renewSession();
+                }, delay);
+                return;
+            }
+            if (Date.now() >= deadline) {
+                updateTimer();
+                return;
+            }
+            renewing = true;
+            try {
+                const response = await fetch(idleTimer.dataset.renewUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': logoutForm.querySelector('[name=csrfmiddlewaretoken]').value },
+                    mode: 'same-origin',
+                });
+                if (response.status === 401) {
+                    signingOut = true;
+                    logoutForm.submit();
+                } else if (response.ok) {
+                    const data = await response.json();
+                    lastRenewal = Date.now();
+                    deadline = lastRenewal + data.expires_in * 1000;
+                    shareDeadline();
+                    updateTimer();
+                }
+            } catch (error) {} finally {
+                renewing = false;
+            }
+        };
+        ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart'].forEach((event) => {
+            document.addEventListener(event, renewSession, { passive: true });
+        });
+    }
     const themeButtons = document.querySelectorAll('[data-theme-choice]');
     const setTheme = (theme) => {
         document.documentElement.dataset.theme = theme;

@@ -1,0 +1,63 @@
+{% extends 'portal/app_base.html' %}
+{% block title %}New Enrollment Request | SchoolHub{% endblock %}
+{% block breadcrumb %}Students / Enrollment Request / New{% endblock %}
+{% block app_content %}
+<div class="master-heading enrollment-heading">
+    <div><a class="back-link enrollment-back-link" href="{% url 'enrollment-request' %}"><i data-lucide="arrow-left"></i> Enrollment requests</a><div class="section-label"><span class="label-dot"></span> STUDENT ADMISSIONS</div><h1>New Enrollment Request<span class="heading-period">.</span></h1><p>Enter the prospective student's details one step at a time.</p></div>
+</div>
+{% for message in messages %}<div class="master-message {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}
+<div class="enrollment-workflow">
+    <nav class="enrollment-progress" aria-label="Application steps">
+        {% for stage in stages %}<div class="enrollment-progress-step {% if step == forloop.counter %}is-active{% elif step == 7 %}is-complete{% elif step > forloop.counter %}is-complete{% endif %}" {% if step == forloop.counter %}aria-current="step"{% endif %}><span>{{ forloop.counter|stringformat:'02d' }}</span><strong>{{ stage }}</strong></div>{% endfor %}
+    </nav>
+    {% if step == 7 %}
+    <section class="enrollment-panel">
+        <div class="enrollment-panel-heading"><div><span class="section-label"><span class="label-dot"></span> FINAL REVIEW</span><h2>Confirm this request</h2><p>Check the application summary before creating the applicant record.</p></div><i data-lucide="clipboard-check"></i></div>
+        <dl class="enrollment-review-list">
+            <div><dt>Student</dt><dd>{{ confirmation.student_name|default:'-' }}</dd></div>
+            <div><dt>Registration number</dt><dd>{{ confirmation.registration_number|default:'-' }}</dd></div>
+            <div><dt>Class applying for</dt><dd>{{ confirmation.class_name|default:'-' }}</dd></div>
+            <div><dt>Registration year</dt><dd>{{ confirmation.registration_year|default:'-' }}</dd></div>
+            <div><dt>Previous schools</dt><dd>{{ confirmation.prior_school_count }}</dd></div>
+            <div><dt>Initial status</dt><dd><span class="enrollment-status">Applied</span></dd></div>
+        </dl>
+        <form method="post" class="enrollment-actions">
+            {% csrf_token %}<input type="hidden" name="step" value="7">
+            <button class="outline-button" type="submit" name="action" value="cancel">Cancel request</button>
+            <button class="outline-button" type="submit" name="action" value="previous"><i data-lucide="arrow-left"></i> Back</button>
+            <button class="button button-dark" type="submit" name="action" value="confirm">Confirm and create <i data-lucide="check"></i></button>
+        </form>
+    </section>
+    {% else %}
+    <section class="enrollment-panel">
+        <div class="enrollment-panel-heading"><div><span class="section-label"><span class="label-dot"></span> STEP {{ step|stringformat:'02d' }} OF 06</span><h2>{{ stages|slice:step|last }}</h2><p>Fields marked with <strong>*</strong> are required.</p></div><span class="enrollment-panel-count">{{ step|stringformat:'02d' }} / 06</span></div>
+        <form method="post" class="enrollment-form" novalidate>
+            {% csrf_token %}<input type="hidden" name="step" value="{{ step }}">
+            {% if form %}
+                {{ form.non_field_errors }}
+                {% for group in field_groups %}
+                <fieldset class="enrollment-field-group"><legend>{{ group.title }}</legend><div class="enrollment-fields">
+                    {% for field in group.fields %}
+                    <div class="enrollment-field {% if field.name == 'same_address' %}enrollment-field-wide enrollment-same-address{% elif field.field.widget.input_type == 'checkbox' %}enrollment-field-wide{% elif field.field.widget.input_type == 'textarea' %}enrollment-field-wide{% endif %}">
+                        {% if field.field.widget.input_type == 'checkbox' %}<label class="enrollment-checkbox" for="{{ field.id_for_label }}">{{ field }}<span>{{ field.label }}</span></label>{% else %}<label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark">*</span>{% endif %}</label>{{ field }}{% endif %}
+                        {% for error in field.errors %}<span class="enrollment-error" role="alert">{{ error }}</span>{% endfor %}
+                    </div>
+                    {% endfor %}
+                </div></fieldset>
+                {% endfor %}
+            {% else %}
+                {{ formset.management_form }}{{ formset.non_form_errors }}
+                <div class="enrollment-school-table-wrap"><table class="enrollment-school-table"><thead><tr><th>#</th><th>From year</th><th>To year</th><th>School name</th><th>Address</th></tr></thead><tbody>
+                    {% for row in formset %}<tr><th scope="row">{{ forloop.counter }}</th><td>{{ row.from_year }}{% for error in row.from_year.errors %}<span class="enrollment-error">{{ error }}</span>{% endfor %}</td><td>{{ row.to_year }}{% for error in row.to_year.errors %}<span class="enrollment-error">{{ error }}</span>{% endfor %}</td><td>{{ row.school_name }}{% for error in row.school_name.errors %}<span class="enrollment-error">{{ error }}</span>{% endfor %}</td><td>{{ row.address }}{% for error in row.address.errors %}<span class="enrollment-error">{{ error }}</span>{% endfor %}</td></tr>{% endfor %}
+                </tbody></table></div>
+                <p class="enrollment-note">Leave a row blank when it does not apply. Enter all four values for each school history row.</p>
+            {% endif %}
+            <div class="enrollment-actions">
+                {% if step == 1 %}<button class="outline-button" type="submit" name="action" value="cancel">Cancel</button>{% else %}<button class="outline-button" type="submit" name="action" value="previous"><i data-lucide="arrow-left"></i> Back</button>{% endif %}
+                <button class="button button-dark" type="submit" name="action" value="next">{% if step == 6 %}Review request{% else %}Continue{% endif %} <i data-lucide="arrow-right"></i></button>
+            </div>
+        </form>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}
